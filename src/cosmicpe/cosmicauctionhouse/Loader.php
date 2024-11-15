@@ -63,11 +63,11 @@ final class Loader extends PluginBase{
 
 		[$sell_price_min, $sell_price_max, $sell_tax_rate, $max_listings, $expiry_duration, $deletion_duration, $item_registry, $layout_main_menu, $layout_personal_listing, $layout_collection_bin,
 			$layout_confirm_buy, $layout_confirm_sell, $message_purchase_failed_listing_no_longer_available,
-			$message_withdraw_failed_listing_no_longer_available, $message_purchase_success] = $config;
+			$message_withdraw_failed_listing_no_longer_available, $message_purchase_success, $message_listing_failed_exceed_limit] = $config;
 		$this->database = new Database($this);
 		$this->auction_house = new AuctionHouse($this->getScheduler(), $sell_price_min, $sell_price_max, $sell_tax_rate, $max_listings, $expiry_duration, $deletion_duration,
 			$item_registry,  $layout_main_menu, $layout_personal_listing, $layout_collection_bin, $layout_confirm_buy, $layout_confirm_sell,
-			$message_purchase_failed_listing_no_longer_available, $message_withdraw_failed_listing_no_longer_available, $message_purchase_success,
+			$message_purchase_failed_listing_no_longer_available, $message_withdraw_failed_listing_no_longer_available, $message_purchase_success, $message_listing_failed_exceed_limit,
 			$this->database, NullAuctionHouseEconomy::instance());
 
 		$this->getServer()->getPluginManager()->registerEvent(PlayerLoginEvent::class, function(PlayerLoginEvent $event) : void{
@@ -187,7 +187,7 @@ final class Loader extends PluginBase{
 
 		isset($data["messages"]) || throw new InvalidArgumentException("'messages' directive not found");
 		is_array($data["messages"]) || throw new InvalidArgumentException("'messages' must be an array, got " . gettype($data["messages"]));
-		$known_messages = ["purchase_failed_listing_no_longer_available" => null, "withdraw_failed_listing_no_longer_available" => null, "purchase_success" => null];
+		$known_messages = ["purchase_failed_listing_no_longer_available" => null, "withdraw_failed_listing_no_longer_available" => null, "purchase_success" => null, "listing_failed_exceed_limit" => null];
 		foreach($data["messages"] as $identifier => $message){
 			array_key_exists($identifier, $known_messages) || throw new InvalidArgumentException("Unexpected message identifier '{$identifier}', expected one of: " . implode(", ", array_keys($known_messages)));
 			is_array($message) || throw new InvalidArgumentException("'message' must be an array for {$identifier}, got " . get_debug_type($message));
@@ -204,7 +204,7 @@ final class Loader extends PluginBase{
 		return [$sell_price_min, $sell_price_max, $sell_tax_rate, $max_listings, $expiry_duration, $deletion_duration, $item_registry,
 			$layouts["main_menu"], $layouts["personal_listing"], $layouts["collection_bin"],  $layouts["confirm_buy"],
 			$layouts["confirm_sell"], $known_messages["purchase_failed_listing_no_longer_available"],
-			$known_messages["withdraw_failed_listing_no_longer_available"], $known_messages["purchase_success"]];
+			$known_messages["withdraw_failed_listing_no_longer_available"], $known_messages["purchase_success"], $known_messages["listing_failed_exceed_limit"]];
 	}
 
 	public function getAuctionHouse() : AuctionHouse{

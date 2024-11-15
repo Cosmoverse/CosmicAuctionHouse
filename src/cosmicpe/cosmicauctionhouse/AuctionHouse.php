@@ -60,6 +60,7 @@ final class AuctionHouse{
 	 * @param array{string, string} $message_purchase_failed_listing_no_longer_available
 	 * @param array{string, string} $message_withdraw_failed_listing_no_longer_available
 	 * @param array{string, string} $message_purchase_success
+	 * @param array{string, string} $message_listing_failed_exceed_limit
 	 * @param Database $database
 	 * @param AuctionHouseEconomy $economy
 	 */
@@ -80,6 +81,7 @@ final class AuctionHouse{
 		readonly public array $message_purchase_failed_listing_no_longer_available,
 		readonly public array $message_withdraw_failed_listing_no_longer_available,
 		readonly public array $message_purchase_success,
+		readonly public array $message_listing_failed_exceed_limit,
 		readonly public Database $database,
 		public AuctionHouseEconomy $economy
 	){
@@ -487,6 +489,14 @@ final class AuctionHouse{
 				continue;
 			}
 			assert($action === "confirm");
+
+			["binned" => $binned, "listings" => $listings] = yield from $this->database->getPlayerStats($player->getUniqueId()->getBytes());
+			if($binned + $listings >= $this->max_listings){
+				$result = false;
+				$player->sendToastNotification($this->message_listing_failed_exceed_limit[0], strtr($this->message_listing_failed_exceed_limit[1], ["{limit}" => $this->max_listings]));
+				continue;
+			}
+
 			$menu->setListener(InvMenu::readonly());
 			$entry = AuctionHouseEntry::new($player, $price, $item, time() + $this->expiry_duration);
 			yield from $this->database->add($entry);

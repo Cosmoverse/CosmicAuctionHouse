@@ -301,6 +301,10 @@
         "purchase_success": [
             "&a&lPurchase Successful",
             "&a{item}&r &7(x{count}) &ais available in your inventory."
+        ],
+        "listing_failed_exceed_limit": [
+            "&c&lListing Failed",
+            "&cYou cannot list more than {limit} items at once."
         ]
     }
 }
