@@ -190,15 +190,12 @@ final class Database{
 	}
 
 	/**
-	 * @param AuctionHouseEntry $entry
+	 * @param string $uuid
+	 * @param int $item_id
 	 * @return Generator<mixed, Await::RESOLVE, void, void>
 	 */
-	public function addToCollectionBin(AuctionHouseEntry $entry) : Generator{
-		yield from $this->asyncInsert(self::STMT_ADD_COLLECTION_BIN, [
-			"uuid" => $entry->player->uuid,
-			"item_id" => $entry->item_id,
-			"placement_time" => time()
-		]);
+	public function addToCollectionBin(string $uuid, int $item_id) : Generator{
+		yield from $this->asyncInsert(self::STMT_ADD_COLLECTION_BIN, ["uuid" => $uuid, "item_id" => $item_id, "placement_time" => time()]);
 	}
 
 	/**

@@ -26,6 +26,7 @@ use function assert;
 use function ceil;
 use function count;
 use function min;
+use function number_format;
 use function sprintf;
 use function str_replace;
 use function strtr;
@@ -35,9 +36,11 @@ final class AuctionHouse{
 
 	public const int ENTRIES_PER_PAGE = 45;
 	public const string ITEM_ID_COLLECTION_BIN = "__collection_bin:item_preview";
+	public const string ITEM_ID_CONFIRM_BID = "__confirm_bid:item_preview";
 	public const string ITEM_ID_CONFIRM_BUY = "__confirm_buy:item_preview";
 	public const string ITEM_ID_CONFIRM_SELL = "__confirm_sell:item_preview";
-	public const string ITEM_ID_MAIN_MENU = "__main_menu:item_preview";
+	public const string ITEM_ID_MAIN_MENU_NORMAL = "__main_menu:item_preview_normal";
+	public const string ITEM_ID_MAIN_MENU_BID = "__main_menu:item_preview_bid";
 	public const string ITEM_ID_PERSONAL_LISTING = "__personal_listing:item_preview";
 
 	readonly private Mutex $lock;
@@ -54,10 +57,12 @@ final class AuctionHouse{
 	 * @param array<int, array{non-empty-string, non-empty-string|null}> $layout_main_menu
 	 * @param array<int, array{non-empty-string, non-empty-string|null}> $layout_personal_listing
 	 * @param array<int, array{non-empty-string, non-empty-string|null}> $layout_collection_bin
+	 * @param array<int, array{non-empty-string, non-empty-string|null}> $layout_confirm_bid
 	 * @param array<int, array{non-empty-string, non-empty-string|null}> $layout_confirm_buy
 	 * @param array<int, array{non-empty-string, non-empty-string|null}> $layout_confirm_sell
 	 * @param array{string, string} $message_purchase_failed_listing_no_longer_available
 	 * @param array{string, string} $message_withdraw_failed_listing_no_longer_available
+	 * @param array{string, string} $message_bid_success
 	 * @param array{string, string} $message_purchase_success
 	 * @param array{string, string} $message_listing_failed_exceed_limit
 	 * @param Database $database
@@ -74,10 +79,12 @@ final class AuctionHouse{
 		readonly public array $layout_main_menu,
 		readonly public array $layout_personal_listing,
 		readonly public array $layout_collection_bin,
+		readonly public array $layout_confirm_bid,
 		readonly public array $layout_confirm_buy,
 		readonly public array $layout_confirm_sell,
 		readonly public array $message_purchase_failed_listing_no_longer_available,
 		readonly public array $message_withdraw_failed_listing_no_longer_available,
+		readonly public array $message_bid_success,
 		readonly public array $message_purchase_success,
 		readonly public array $message_listing_failed_exceed_limit,
 		readonly public Database $database,
@@ -187,7 +194,7 @@ final class AuctionHouse{
 						if($entry->bid_info !== null && $entry->bid_info->bidder !== null){
 							$tasks[] = $this->database->bid(new AuctionHouseBidInfo($entry->bid_info->uuid, $entry->bid_info->bidder, $entry->bid_info->offer, $entry->bid_info->placed_timestamp, $now, $entry->bid_info->offered_timestamp));
 						}else{
-							$tasks[] = $this->database->addToCollectionBin($entry);
+							$tasks[] = $this->database->addToCollectionBin($entry->player->uuid, $entry->item_id);
 						}
 						$tasks[] = $this->database->remove($entry->uuid);
 					}
@@ -303,7 +310,14 @@ final class AuctionHouse{
 				$contents = [];
 				foreach($entries as $entry){
 					$item = $items[$entry->item_id];
-					$contents[] = $this->formatInternalItem($item, self::ITEM_ID_MAIN_MENU, ["{price}" => $entry->price, "{seller}" => $entry->player->gamertag]);
+					if($entry->bid_info === null){
+						$contents[] = $this->formatInternalItem($item, self::ITEM_ID_MAIN_MENU_NORMAL, ["{price}" => $entry->price, "{seller}" => $entry->player->gamertag]);
+					}else{
+						$contents[] = $this->formatInternalItem($item, self::ITEM_ID_MAIN_MENU_BID, [
+							"{price}" => $entry->price, "{seller}" => $entry->player->gamertag,
+							"{bidder}" => $entry->bid_info->bidder?->gamertag ?? "-", "{expiry}" => Utils::formatTimeDiff($entry->expiry_time - time())
+						]);
+					}
 				}
 				$replacement_pairs = ["{binned}" => $binned, "{listings}" => $listings];
 				$replacement_find = array_keys($replacement_pairs);
@@ -368,6 +382,7 @@ final class AuctionHouse{
 					return "main_menu_categorized";
 				}elseif(isset($uuids[$slot])){
 					$uuid = $uuids[$slot];
+					/** @var array<string, AuctionHouseEntry> $entries */
 					$entries = yield from $this->loadEntries([$uuid]);
 					if(isset($entries[$uuid])){
 						try{
@@ -432,10 +447,11 @@ final class AuctionHouse{
 				yield from $this->lock->acquire(); // someone could buy the item before user gets to unlist it
 				try{
 					if(count($entries) > 0){
+						$entry = $entries[$uuids[$slot]];
 						unset($this->entry_cache[$uuids[$slot]]);
 						yield from Await::all([
 							$this->database->remove($uuids[$slot]),
-							$this->database->addToCollectionBin($entries[$uuids[$slot]])
+							$this->database->addToCollectionBin($entry->player->uuid, $entry->item_id)
 						]);
 					}elseif($player->isConnected()){
 						$player->sendToastNotification($this->message_withdraw_failed_listing_no_longer_available[0], $this->message_withdraw_failed_listing_no_longer_available[1]);
@@ -515,10 +531,16 @@ final class AuctionHouse{
 	private function sendPurchaseConfirmation(Player $player, InvMenu $menu, AuctionHouseEntry $entry) : Generator{
 		$items = yield from $this->loadItems([$entry->item_id]);
 		$item = $items[$entry->item_id];
-		$replacement_pairs = ["{price}" => $entry->price, "{seller}" => $entry->player->gamertag, "{item}" => $item->getName(), "{count}" => $item->getCount()];
+		$price = $entry->bid_info?->offer !== null ? $entry->bid_info->offer : $entry->price;
+		$replacement_pairs = [
+			"{price}" => number_format($price), "{seller}" => $entry->player->gamertag, "{item}" => $item->getName(), "{count}" => $item->getCount(),
+			"{bidder}" => $entry->bid_info?->bidder?->gamertag ?? "-", "{expiry}" => Utils::formatTimeDiff($entry->expiry_time - time())
+		];
+		$layout = $entry->bid_info !== null ? $this->layout_confirm_bid : $this->layout_confirm_buy;
 		$contents = [];
-		foreach($this->layout_confirm_buy as $slot => [$identifier, ]){
+		foreach($layout as $slot => [$identifier, ]){
 			$contents[$slot] = match($identifier){
+				self::ITEM_ID_CONFIRM_BID => $this->formatInternalItem($item, self::ITEM_ID_CONFIRM_BID, $replacement_pairs),
 				self::ITEM_ID_CONFIRM_BUY => $this->formatInternalItem($item, self::ITEM_ID_CONFIRM_BUY, $replacement_pairs),
 				default => $this->formatItem($identifier, $replacement_pairs)
 			};
@@ -530,10 +552,10 @@ final class AuctionHouse{
 			$menu->setListener(InvMenu::readonly());
 
 			$slot = $transaction->getAction()->getSlot();
-			if(!isset($this->layout_confirm_buy[$slot])){
+			if(!isset($layout[$slot])){
 				continue;
 			}
-			$action = $this->layout_confirm_buy[$slot][1];
+			$action = $layout[$slot][1];
 			if($action === null){
 				continue;
 			}
@@ -548,26 +570,39 @@ final class AuctionHouse{
 					$player->sendToastNotification($this->message_purchase_failed_listing_no_longer_available[0], $this->message_purchase_failed_listing_no_longer_available[1]);
 					break;
 				}
+				$price_ = $entry->bid_info?->offer !== null ? $entry->bid_info->offer : $entry->price;
+				if($price_ !== $price){
+					$player->sendToastNotification($this->message_purchase_failed_listing_no_longer_available[0], $this->message_purchase_failed_listing_no_longer_available[1]);
+					break;
+				}
 				try{
-					yield from $this->economy->removeBalance($player->getUniqueId()->getBytes(), $entry->price);
+					yield from $this->economy->removeBalance($player->getUniqueId()->getBytes(), $price);
 				}catch(AuctionHouseException $e){
 					if($player->isConnected()){
-						$player->sendToastNotification(TextFormat::RED . TextFormat::BOLD . "Purchase Failed", TextFormat::RED . $e->getMessage());
+						$player->sendToastNotification(TextFormat::RED . TextFormat::BOLD . ($entry->bid_info !== null ? "Bid Failed" : "Purchase Failed"), TextFormat::RED . $e->getMessage());
 					}
 					break;
 				}
-				if(!$player->isConnected()){ // refund money
-					yield from $this->economy->addBalance($player->getUniqueId()->getBytes(), $entry->price);
-					break;
+				if($entry->bid_info === null){
+					if($player->isConnected()){
+						$player->getInventory()->addItem($item);
+						$player->sendToastNotification($this->message_purchase_success[0], strtr($this->message_purchase_success[1], ["{item}" => $item->getName(), "{count}" => $item->getCount(), "{price}" => number_format($price)]));
+					}else{ // player is offline: place in their collection bin
+						yield from $this->database->addToCollectionBin($player->getUniqueId()->getBytes(), $entry->item_id);
+					}
+					unset($this->entry_cache[$entry->uuid]);
+					yield from Await::all([
+						$this->database->log($entry, $player->getUniqueId()->getBytes(), $price, time()),
+						$this->database->remove($entry->uuid),
+						$this->economy->addBalance($entry->player->uuid, $price)
+					]);
+				}else{
+					yield from $this->database->bid(new AuctionHouseBidInfo($entry->bid_info->uuid, AuctionHousePlayerIdentification::fromPlayer($player), $price, time(), $entry->bid_info->completed_timestamp, $entry->bid_info->offered_timestamp));
+					unset($this->entry_cache[$entry->uuid]);
+					if($player->isConnected()){
+						$player->sendToastNotification($this->message_bid_success[0], strtr($this->message_bid_success[1], ["{item}" => $item->getName(), "{count}" => $item->getCount(), "{price}" => number_format($price)]));
+					}
 				}
-				$player->getInventory()->addItem($item);
-				$player->sendToastNotification($this->message_purchase_success[0], strtr($this->message_purchase_success[1], ["{item}" => $item->getName(), "{count}" => $item->getCount()]));
-				unset($this->entry_cache[$entry->uuid]);
-				yield from Await::all([
-					$this->database->log($entry, $player->getUniqueId()->getBytes(), $entry->price, time()),
-					$this->database->remove($entry->uuid),
-					$this->economy->addBalance($entry->player->uuid, $entry->price)
-				]);
 			}finally{
 				$this->lock->release();
 			}

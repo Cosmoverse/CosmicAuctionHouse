@@ -134,7 +134,8 @@ final class Loader extends PluginBase{
 		$max_listings = $read_positive_numeric_evaluator("max_listings", "int");
 		$expiry_duration = $read_relative_time("expiry_duration");
 
-		$internal_items = [AuctionHouse::ITEM_ID_PERSONAL_LISTING, AuctionHouse::ITEM_ID_CONFIRM_BUY, AuctionHouse::ITEM_ID_CONFIRM_SELL, AuctionHouse::ITEM_ID_MAIN_MENU, AuctionHouse::ITEM_ID_COLLECTION_BIN];
+		$internal_items = [AuctionHouse::ITEM_ID_PERSONAL_LISTING, AuctionHouse::ITEM_ID_CONFIRM_BID, AuctionHouse::ITEM_ID_CONFIRM_BUY,
+			AuctionHouse::ITEM_ID_CONFIRM_SELL, AuctionHouse::ITEM_ID_MAIN_MENU_NORMAL, AuctionHouse::ITEM_ID_MAIN_MENU_BID, AuctionHouse::ITEM_ID_COLLECTION_BIN];
 		isset($data["item_registry"]) || throw new InvalidArgumentException("'item_registry' directive not found");
 		is_array($data["item_registry"]) || throw new InvalidArgumentException("'item_registry' must be an array, got " . gettype($data["item_registry"]));
 		$item_registry = [];
@@ -169,6 +170,7 @@ final class Loader extends PluginBase{
 			"main_menu" => ["personal_listings", "collection_bin", "page_previous", "refresh", "page_next", "category_view", "none"],
 			"personal_listing" => ["back", "none"],
 			"collection_bin" => ["back", "claim_all", "guide", "none"],
+			"confirm_bid" => ["confirm", "deny", "none"],
 			"confirm_buy" => ["confirm", "deny", "none"],
 			"confirm_sell" => ["confirm", "deny", "none"]
 		];
@@ -195,7 +197,7 @@ final class Loader extends PluginBase{
 
 		isset($data["messages"]) || throw new InvalidArgumentException("'messages' directive not found");
 		is_array($data["messages"]) || throw new InvalidArgumentException("'messages' must be an array, got " . gettype($data["messages"]));
-		$known_messages = ["purchase_failed_listing_no_longer_available" => null, "withdraw_failed_listing_no_longer_available" => null, "purchase_success" => null, "listing_failed_exceed_limit" => null];
+		$known_messages = ["purchase_failed_listing_no_longer_available" => null, "withdraw_failed_listing_no_longer_available" => null, "bid_success" => null, "purchase_success" => null, "listing_failed_exceed_limit" => null];
 		foreach($data["messages"] as $identifier => $message){
 			array_key_exists($identifier, $known_messages) || throw new InvalidArgumentException("Unexpected message identifier '{$identifier}', expected one of: " . implode(", ", array_keys($known_messages)));
 			is_array($message) || throw new InvalidArgumentException("'message' must be an array for {$identifier}, got " . get_debug_type($message));
@@ -209,8 +211,8 @@ final class Loader extends PluginBase{
 
 		$undefined_layout_identifiers = array_diff_key($known_layouts, $layouts);
 		count($undefined_layout_identifiers) === 0 || throw new InvalidArgumentException("No configuration specified for menu layout " . implode(", ", array_keys($undefined_layout_identifiers)));
-		return new AuctionHouse($this->getScheduler(), $item_registry, $layouts["main_menu"], $layouts["personal_listing"], $layouts["collection_bin"], $layouts["confirm_buy"], $layouts["confirm_sell"],
-			$known_messages["purchase_failed_listing_no_longer_available"], $known_messages["withdraw_failed_listing_no_longer_available"], $known_messages["purchase_success"], $known_messages["listing_failed_exceed_limit"],
+		return new AuctionHouse($this->getScheduler(), $item_registry, $layouts["main_menu"], $layouts["personal_listing"], $layouts["collection_bin"], $layouts["confirm_bid"], $layouts["confirm_buy"], $layouts["confirm_sell"],
+			$known_messages["purchase_failed_listing_no_longer_available"], $known_messages["withdraw_failed_listing_no_longer_available"], $known_messages["bid_success"], $known_messages["purchase_success"], $known_messages["listing_failed_exceed_limit"],
 			$this->database, $sell_price_min, $sell_price_max, $sell_tax_rate, $max_listings, $expiry_duration, NullAuctionHouseEconomy::instance());
 	}
 
