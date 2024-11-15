@@ -445,18 +445,19 @@ final class AuctionHouse{
 
 	/**
 	 * @param Player $player
-	 * @param AuctionHouseEntry $entry
+	 * @param Item $item
+	 * @param float $price
 	 * @return Generator<mixed, Await::RESOLVE, void, bool>
 	 */
-	public function sendSellConfirmation(Player $player, AuctionHouseEntry $entry) : Generator{
+	public function sendSellConfirmation(Player $player, Item $item, float $price) : Generator{
 		$replacement_pairs = [
-			"{price}" => $entry->price, "{seller}" => $entry->player->gamertag, "{item}" => $entry->item->getName(), "{count}" => $entry->item->getCount(),
-			"{fee_value}" => sprintf("%.2f", $this->sell_tax_rate * $entry->price), "{fee_pct}" => sprintf("%.2f", $this->sell_tax_rate * 100)
+			"{price}" => $price, "{seller}" => $player->getName(), "{item}" => $item->getName(), "{count}" => $item->getCount(),
+			"{fee_value}" => sprintf("%.2f", $this->sell_tax_rate * $price), "{fee_pct}" => sprintf("%.2f", $this->sell_tax_rate * 100)
 		];
 		$contents = [];
 		foreach($this->layout_confirm_sell as $slot => [$identifier, ]){
 			$contents[$slot] = match($identifier){
-				self::ITEM_ID_CONFIRM_SELL => $this->formatInternalItem($entry->item, self::ITEM_ID_CONFIRM_SELL, $replacement_pairs),
+				self::ITEM_ID_CONFIRM_SELL => $this->formatInternalItem($item, self::ITEM_ID_CONFIRM_SELL, $replacement_pairs),
 				default => $this->formatItem($identifier, $replacement_pairs)
 			};
 		}
@@ -487,6 +488,7 @@ final class AuctionHouse{
 			}
 			assert($action === "confirm");
 			$menu->setListener(InvMenu::readonly());
+			$entry = AuctionHouseEntry::new($player, $price, $item, time() + $this->expiry_duration);
 			yield from $this->database->add($entry);
 			$this->entries[$entry->uuid] = $entry;
 			$result = true;

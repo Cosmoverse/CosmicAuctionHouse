@@ -242,8 +242,7 @@ final class Loader extends PluginBase{
 						return;
 					}
 
-					$entry = AuctionHouseEntry::new($player, $price, $item, time() + $this->auction_house->expiry_duration);
-					yield from $this->auction_house->sendSellConfirmation($player, $entry);
+					yield from $this->auction_house->sendSellConfirmation($player, $item, $price);
 				}
 			}
 		}finally{
