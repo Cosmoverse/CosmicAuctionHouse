@@ -132,9 +132,7 @@ final class Loader extends PluginBase{
 		$sell_price_max = $read_positive_numeric_evaluator("sell_price_max", "float");
 		$sell_tax_rate = $read_positive_numeric_evaluator("sell_tax_rate", "float");
 		$max_listings = $read_positive_numeric_evaluator("max_listings", "int");
-
 		$expiry_duration = $read_relative_time("expiry_duration");
-		$deletion_duration = $read_relative_time("deletion_duration");
 
 		$internal_items = [AuctionHouse::ITEM_ID_PERSONAL_LISTING, AuctionHouse::ITEM_ID_CONFIRM_BUY, AuctionHouse::ITEM_ID_CONFIRM_SELL, AuctionHouse::ITEM_ID_MAIN_MENU, AuctionHouse::ITEM_ID_COLLECTION_BIN];
 		isset($data["item_registry"]) || throw new InvalidArgumentException("'item_registry' directive not found");
@@ -213,7 +211,7 @@ final class Loader extends PluginBase{
 		count($undefined_layout_identifiers) === 0 || throw new InvalidArgumentException("No configuration specified for menu layout " . implode(", ", array_keys($undefined_layout_identifiers)));
 		return new AuctionHouse($this->getScheduler(), $item_registry, $layouts["main_menu"], $layouts["personal_listing"], $layouts["collection_bin"], $layouts["confirm_buy"], $layouts["confirm_sell"],
 			$known_messages["purchase_failed_listing_no_longer_available"], $known_messages["withdraw_failed_listing_no_longer_available"], $known_messages["purchase_success"], $known_messages["listing_failed_exceed_limit"],
-			$this->database, $sell_price_min, $sell_price_max, $sell_tax_rate, $max_listings, $expiry_duration, $deletion_duration, NullAuctionHouseEconomy::instance());
+			$this->database, $sell_price_min, $sell_price_max, $sell_tax_rate, $max_listings, $expiry_duration, NullAuctionHouseEconomy::instance());
 	}
 
 	public function getAuctionHouse() : AuctionHouse{

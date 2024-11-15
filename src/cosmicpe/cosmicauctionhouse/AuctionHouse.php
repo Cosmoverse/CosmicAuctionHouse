@@ -14,9 +14,10 @@ use pocketmine\player\Player;
 use pocketmine\scheduler\ClosureTask;
 use pocketmine\scheduler\TaskScheduler;
 use pocketmine\utils\TextFormat;
+use RuntimeException;
 use SOFe\AwaitGenerator\Await;
 use SOFe\AwaitGenerator\Mutex;
-use function array_combine;
+use function array_column;
 use function array_keys;
 use function array_map;
 use function array_push;
@@ -24,6 +25,7 @@ use function array_values;
 use function assert;
 use function ceil;
 use function count;
+use function min;
 use function sprintf;
 use function str_replace;
 use function strtr;
@@ -38,10 +40,13 @@ final class AuctionHouse{
 	public const string ITEM_ID_MAIN_MENU = "__main_menu:item_preview";
 	public const string ITEM_ID_PERSONAL_LISTING = "__personal_listing:item_preview";
 
-	readonly private Mutex $lock_purchase;
+	readonly private Mutex $lock;
 
-	/** @var array<non-empty-string, AuctionHouseEntry> */
-	private array $entries;
+	/** @var array<int, Item> */
+	private array $entry_cache = [];
+
+	/** @var array<int, Item> */
+	private array $item_cache = [];
 
 	/**
 	 * @param TaskScheduler $scheduler
@@ -61,7 +66,6 @@ final class AuctionHouse{
 	 * @param AuctionHousePermissionEvaluator<float> $sell_tax_rate
 	 * @param AuctionHousePermissionEvaluator<int> $max_listings
 	 * @param AuctionHousePermissionEvaluator<int> $expiry_duration
-	 * @param AuctionHousePermissionEvaluator<int> $deletion_duration
 	 * @param AuctionHouseEconomy $economy
 	 */
 	public function __construct(
@@ -82,12 +86,11 @@ final class AuctionHouse{
 		public AuctionHousePermissionEvaluator $sell_tax_rate,
 		public AuctionHousePermissionEvaluator $max_listings,
 		public AuctionHousePermissionEvaluator $expiry_duration,
-		public AuctionHousePermissionEvaluator $deletion_duration,
 		public AuctionHouseEconomy $economy
 	){
-		$this->lock_purchase = new Mutex();
-		Await::g2c($this->loadEntries());
+		$this->lock = new Mutex();
 		$this->database->waitAll();
+		Await::g2c($this->runScheduler());
 	}
 
 	/**
@@ -99,13 +102,127 @@ final class AuctionHouse{
 	}
 
 	/**
+	 * @param list<int> $ids
+	 * @return Generator<mixed, Await::RESOLVE, void, array<int, Item>>
+	 */
+	private function loadItems(array $ids) : Generator{
+		$result = [];
+		yield from $this->lock->acquire();
+		try{
+			$tasks = [];
+			foreach($ids as $id){
+				if(isset($this->item_cache[$id])){
+					$result[$id] = $this->item_cache[$id];
+				}else{
+					$tasks[$id] = $this->database->getItem($id);
+				}
+			}
+			if(count($tasks) > 0){
+				$loaded = yield from Await::all($tasks);
+				foreach($loaded as $id => $item){
+					if($item !== null){
+						$this->item_cache[$id] = $item;
+						$result[$id] = $item;
+					}
+				}
+			}
+		}finally{
+			$this->lock->release();
+		}
+		return $result;
+	}
+
+	/**
+	 * @param list<string> $ids
+	 * @return Generator<mixed, Await::RESOLVE, void, array<string, AuctionHouseEntry>>
+	 */
+	private function loadEntries(array $ids) : Generator{
+		$result = [];
+		yield from $this->lock->acquire();
+		try{
+			$tasks = [];
+			foreach($ids as $id){
+				if(isset($this->entry_cache[$id])){
+					$result[$id] = $this->entry_cache[$id];
+				}else{
+					$tasks[$id] = $this->database->get($id);
+				}
+			}
+			if(count($tasks) > 0){
+				$loaded = yield from Await::all($tasks);
+				foreach($loaded as $id => $item){
+					if($item !== null){
+						$this->entry_cache[$id] = $item;
+						$result[$id] = $item;
+					}
+				}
+			}
+		}finally{
+			$this->lock->release();
+		}
+		return $result;
+	}
+
+	/**
 	 * @return Generator<mixed, Await::RESOLVE, void, void>
 	 */
-	private function loadEntries() : Generator{
-		/** @var list<AuctionHouseEntry> $entries */
-		$entries = yield from $this->database->loadAll();
-		$keys = array_map(static fn($entry) => $entry->uuid, $entries);
-		$this->entries = array_combine($keys, $entries);
+	private function runScheduler() : Generator{
+		$state = "expiring";
+		$next_runs = [];
+		while(true){
+			if($state === "expiring"){
+				/** @var array<string, AuctionHouseEntry> $entries */
+				$entries = yield from $this->loadEntries(yield from $this->database->expiring(60));
+				$next = null;
+				$now = time();
+				yield from $this->lock->acquire();
+				try{
+					$tasks = [];
+					foreach($entries as $entry){
+						if($entry->expiry_time >= $now){
+							$next = $entry;
+							break;
+						}
+						unset($this->entry_cache[$entry->uuid]);
+						if($entry->bid_info !== null && $entry->bid_info->bidder !== null){
+							$tasks[] = $this->database->bid(new AuctionHouseBidInfo($entry->bid_info->uuid, $entry->bid_info->bidder, $entry->bid_info->offer, $entry->bid_info->placed_timestamp, $now, $entry->bid_info->offered_timestamp));
+						}else{
+							$tasks[] = $this->database->addToCollectionBin($entry);
+						}
+						$tasks[] = $this->database->remove($entry->uuid);
+					}
+					if(count($tasks) > 0){
+						yield from Await::all($tasks);
+					}
+				}finally{
+					$this->lock->release();
+				}
+				if($next !== null){
+					$next_runs[] = 1 + ($next->expiry_time - $now);
+				}
+				$state = "unoffered_bids";
+			}elseif($state === "unoffered_bids"){
+				$uuids = yield from $this->database->unofferedBids();
+				if(count($uuids) > 0){
+					yield from Await::all(array_map($this->processBidExpiration(...), $uuids));
+				}
+				$state = "wait";
+			}elseif($state === "wait"){
+				yield from $this->sleep(20 * (count($next_runs) === 0 ? 60 : min($next_runs)));
+				$next_runs = [];
+				$state = "expiring";
+			}else{
+				throw new RuntimeException("Invalid state: {$state}");
+			}
+		}
+	}
+
+	/**
+	 * @param string $uuid
+	 * @return Generator<mixed, Await::RESOLVE, void, void>
+	 */
+	private function processBidExpiration(string $uuid) : Generator{
+		yield from [];
 	}
 
 	/**
@@ -126,7 +243,11 @@ final class AuctionHouse{
 	 * @return Item
 	 */
 	private function formatInternalItem(Item $item, string $item_id, array $replacement_pairs) : Item{
-		$extra_lore = str_replace(array_keys($replacement_pairs), array_values($replacement_pairs), $this->item_registry[$item_id]->getLore());
+		if(count($replacement_pairs) > 0){
+			$extra_lore = str_replace(array_keys($replacement_pairs), array_values($replacement_pairs), $this->item_registry[$item_id]->getLore());
+		}else{
+			$extra_lore = $this->item_registry[$item_id]->getLore();
+		}
 		$item = clone $item;
 		$lore = $item->getLore();
 		array_push($lore, ...$extra_lore);
@@ -166,21 +287,23 @@ final class AuctionHouse{
 		$state = "refresh";
 		while(true){
 			if($state === "refresh"){
-				[$uuids, ["binned" => $binned, "listings" => $listings]] = yield from Await::all([
+				[$count, $uuids, ["binned" => $binned, "listings" => $listings]] = yield from Await::all([
+					$this->database->count(),
 					$this->database->list(($page - 1) * self::ENTRIES_PER_PAGE, self::ENTRIES_PER_PAGE),
 					$this->database->getPlayerStats($player->getUniqueId()->getBytes())
 				]);
-				$total_pages = (int) ceil(count($this->entries) / self::ENTRIES_PER_PAGE);
+				$total_pages = (int) ceil($count / self::ENTRIES_PER_PAGE);
 				if($page > 1 && count($uuids) === 0){
 					$page = 1;
 					continue;
 				}
+				/** @var array<string, AuctionHouseEntry> $entries */
+				$entries = yield from $this->loadEntries($uuids);
+				$items = yield from $this->loadItems(array_map(static fn($e) => $e->item_id, $entries));
 				$contents = [];
-				foreach($uuids as $uuid){
-					if(isset($this->entries[$uuid])){
-						$entry = $this->entries[$uuid];
-						$contents[] = $this->formatInternalItem($entry->item, self::ITEM_ID_MAIN_MENU, ["{price}" => $entry->price, "{seller}" => $entry->player->gamertag]);
-					}
+				foreach($entries as $entry){
+					$item = $items[$entry->item_id];
+					$contents[] = $this->formatInternalItem($item, self::ITEM_ID_MAIN_MENU, ["{price}" => $entry->price, "{seller}" => $entry->player->gamertag]);
 				}
 				$replacement_pairs = ["{binned}" => $binned, "{listings}" => $listings];
 				$replacement_find = array_keys($replacement_pairs);
@@ -245,9 +368,10 @@ final class AuctionHouse{
 					return "main_menu_categorized";
 				}elseif(isset($uuids[$slot])){
 					$uuid = $uuids[$slot];
-					if(isset($this->entries[$uuid])){
+					$entries = yield from $this->loadEntries([$uuid]);
+					if(isset($entries[$uuid])){
 						try{
-							yield from $this->sendPurchaseConfirmation($player, $menu, $this->entries[$uuid]);
+							yield from $this->sendPurchaseConfirmation($player, $menu, $entries[$uuid]);
 						}catch(InventoryException){
 							break;
 						}
@@ -273,9 +397,13 @@ final class AuctionHouse{
 		while(true){
 			if($state === "refresh"){
 				$uuids = yield from $this->database->getPlayerListings($player->getUniqueId()->getBytes());
-				$contents = array_map(fn($uuid) => $this->formatInternalItem($this->entries[$uuid]->item, self::ITEM_ID_PERSONAL_LISTING, [
-					"{price}" => $this->entries[$uuid]->price,
-					"{expire}" => Utils::formatTimeDiff($this->entries[$uuid]->expiry_time - time())
+				/** @var array<string, AuctionHouseEntry> $entries */
+				$entries = yield from $this->loadEntries($uuids);
+				$items = yield from $this->loadItems(array_map(static fn($e) => $e->item_id, $entries));
+
+				$contents = array_map(fn($uuid) => $this->formatInternalItem($items[$entries[$uuid]->item_id], self::ITEM_ID_PERSONAL_LISTING, [
+					"{price}" => $entries[$uuid]->price,
+					"{expire}" => Utils::formatTimeDiff($entries[$uuid]->expiry_time - time())
 				]), $uuids);
 				foreach($this->layout_personal_listing as $slot => [$identifier, ]){
 					$contents[$slot] = $this->item_registry[$identifier];
@@ -300,17 +428,20 @@ final class AuctionHouse{
 					continue;
 				}
 				$uuid = $uuids[$slot];
-				yield from $this->lock_purchase->acquire(); // someone could buy the item before user gets to unlist it
+				$entries = yield from $this->loadEntries([$uuid]);
+				yield from $this->lock->acquire(); // someone could buy the item before user gets to unlist it
 				try{
-					if(isset($this->entries[$uuid])){
-						$time = time() - 1;
-						$this->entries[$uuid] = AuctionHouseEntry::from($this->entries[$uuid], $time);
-						yield from $this->database->updateExpiryTime($uuids[$slot], $time);
+					if(count($entries) > 0){
+						unset($this->entry_cache[$uuids[$slot]]);
+						yield from Await::all([
+							$this->database->remove($uuids[$slot]),
+							$this->database->addToCollectionBin($entries[$uuids[$slot]])
+						]);
 					}elseif($player->isConnected()){
 						$player->sendToastNotification($this->message_withdraw_failed_listing_no_longer_available[0], $this->message_withdraw_failed_listing_no_longer_available[1]);
 					}
 				}finally{
-					$this->lock_purchase->release();
+					$this->lock->release();
 				}
 				$state = "refresh";
 			}
@@ -324,15 +455,15 @@ final class AuctionHouse{
 	 * @return Generator<mixed, Await::RESOLVE, void, string|null>
 	 */
 	private function sendCollectionBin(Player $player, InvMenu $menu) : Generator{
-		$uuids = [];
+		$player_uuid = $player->getUniqueId()->getBytes();
+		$binned_items = [];
+		$items = [];
 		$state = "refresh";
 		while(true){
 			if($state === "refresh"){
-				$uuids = yield from $this->database->getPlayerBin($player->getUniqueId()->getBytes());
-				$contents = array_map(fn($uuid) => $this->formatInternalItem($this->entries[$uuid]->item, self::ITEM_ID_COLLECTION_BIN, [
-					"{price}" => $this->entries[$uuid]->price,
-					"{deletion}" => Utils::formatTimeDiff(($this->entries[$uuid]->expiry_time + $this->deletion_duration->evaluate($player)) - time())
-				]), $uuids);
+				$binned_items = yield from $this->database->getCollectionBin($player_uuid);
+				$items = yield from $this->loadItems(array_column($binned_items, 0));
+				$contents = array_map(fn($e) => $this->formatInternalItem($items[$e[0]], self::ITEM_ID_COLLECTION_BIN, []), $binned_items);
 				foreach($this->layout_collection_bin as $slot => [$identifier, ]){
 					$contents[$slot] = $this->item_registry[$identifier];
 				}
@@ -353,22 +484,20 @@ final class AuctionHouse{
 					return "main_menu";
 				}
 				if($action === "claim_all"){
-					if(count($uuids) === 0){
+					if(count($binned_items) === 0){
 						continue;
 					}
-					yield from Await::all(array_map($this->database->remove(...), $uuids));
-					$items = [];
-					foreach($uuids as $uuid){
-						$entry = $this->entries[$uuid];
-						unset($this->entries[$uuid]);
-						$items[] = $entry->item;
+					yield from Await::all(array_map(fn($e) => $this->database->removeFromCollectionBin($player_uuid, $e[0]), $binned_items));
+					$collected = [];
+					foreach($binned_items as [$item_id,]){
+						$collected[] = $items[$item_id];
 					}
-					$player->getInventory()->addItem(...$items);
+					$player->getInventory()->addItem(...$collected);
 					$state = "refresh";
-				}elseif(isset($uuids[$slot])){
-					$entry = $this->entries[$uuids[$slot]];
-					yield from $this->database->remove($uuids[$slot]);
-					$player->getInventory()->addItem($entry->item);
+				}elseif(isset($binned_items[$slot])){
+					$item_id = $binned_items[$slot][0];
+					yield from $this->database->removeFromCollectionBin($player_uuid, $item_id);
+					$player->getInventory()->addItem($items[$item_id]);
 					$state = "refresh";
 				}
 			}
@@ -384,11 +513,13 @@ final class AuctionHouse{
 	 * @throws InventoryException
 	 */
 	private function sendPurchaseConfirmation(Player $player, InvMenu $menu, AuctionHouseEntry $entry) : Generator{
-		$replacement_pairs = ["{price}" => $entry->price, "{seller}" => $entry->player->gamertag, "{item}" => $entry->item->getName(), "{count}" => $entry->item->getCount()];
+		$items = yield from $this->loadItems([$entry->item_id]);
+		$item = $items[$entry->item_id];
+		$replacement_pairs = ["{price}" => $entry->price, "{seller}" => $entry->player->gamertag, "{item}" => $item->getName(), "{count}" => $item->getCount()];
 		$contents = [];
 		foreach($this->layout_confirm_buy as $slot => [$identifier, ]){
 			$contents[$slot] = match($identifier){
-				self::ITEM_ID_CONFIRM_BUY => $this->formatInternalItem($entry->item, self::ITEM_ID_CONFIRM_BUY, $replacement_pairs),
+				self::ITEM_ID_CONFIRM_BUY => $this->formatInternalItem($item, self::ITEM_ID_CONFIRM_BUY, $replacement_pairs),
 				default => $this->formatItem($identifier, $replacement_pairs)
 			};
 		}
@@ -410,9 +541,10 @@ final class AuctionHouse{
 				break;
 			}
 			assert($action === "confirm");
-			yield from $this->lock_purchase->acquire(); // multiple users can view purchase confirmation screen
+			$entries = yield from $this->loadEntries([$entry->uuid]);
+			yield from $this->lock->acquire(); // multiple users can view purchase confirmation screen
 			try{
-				if(!isset($this->entries[$entry->uuid]) || $entry->expiry_time <= time()){
+				if(count($entries) === 0 || $entry->expiry_time <= time()){
 					$player->sendToastNotification($this->message_purchase_failed_listing_no_longer_available[0], $this->message_purchase_failed_listing_no_longer_available[1]);
 					break;
 				}
@@ -428,18 +560,16 @@ final class AuctionHouse{
 					yield from $this->economy->addBalance($player->getUniqueId()->getBytes(), $entry->price);
 					break;
 				}
-				$player->getInventory()->addItem($entry->item);
-				$player->sendToastNotification($this->message_purchase_success[0], strtr($this->message_purchase_success[1], [
-					"{item}" => $entry->item->getName(),
-					"{count}" => $entry->item->getCount()
-				]));
+				$player->getInventory()->addItem($item);
+				$player->sendToastNotification($this->message_purchase_success[0], strtr($this->message_purchase_success[1], ["{item}" => $item->getName(), "{count}" => $item->getCount()]));
+				unset($this->entry_cache[$entry->uuid]);
 				yield from Await::all([
-					$this->database->log($entry, $player->getUniqueId()->getBytes(), $entry->price),
+					$this->database->log($entry, $player->getUniqueId()->getBytes(), $entry->price, time()),
 					$this->database->remove($entry->uuid),
 					$this->economy->addBalance($entry->player->uuid, $entry->price)
 				]);
 			}finally{
-				$this->lock_purchase->release();
+				$this->lock->release();
 			}
 			break;
 		}
@@ -456,7 +586,7 @@ final class AuctionHouse{
 		$sell_price_max = $this->sell_price_max->evaluate($player);
 		$price >= $sell_price_min || throw new InvalidArgumentException("Sell price (" . sprintf("%.2f", $price) . ") must be at least \$" . sprintf("%.2f", $sell_price_min) . ".");
 		$price <= $sell_price_max || throw new InvalidArgumentException("Sell price (" . sprintf("%.2f", $price) . ") must not exceed \$" . sprintf("%.2f", $sell_price_max) . ".");
-		$tax_rate = $this->sell_tax_rate->evaluate($player);
+		$tax_rate = $this->sell_tax_rate->evaluate($player) * 0.01;
 		$max_listings = $this->max_listings->evaluate($player);
 		$expiry_duration = $this->expiry_duration->evaluate($player);
 		$replacement_pairs = [
@@ -507,9 +637,13 @@ final class AuctionHouse{
 			}
 
 			$menu->setListener(InvMenu::readonly());
-			$entry = AuctionHouseEntry::new($player, $price, $item, time() + $expiry_duration);
-			yield from $this->database->add($entry);
-			$this->entries[$entry->uuid] = $entry;
+			yield from $this->lock->acquire();
+			try{
+				$item_id = yield from $this->database->addItem($item);
+				yield from $this->database->add(AuctionHouseEntry::new($player, $price, $item_id, time() + $expiry_duration, null));
+			}finally{
+				$this->lock->release();
+			}
 			$result = true;
 		}
 		if($player->isConnected()){

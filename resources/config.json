@@ -14,9 +14,6 @@
     "expiry_duration": [
         {"permission": "pocketmine.group.user", "value": "1 day"}
     ],
-    "deletion_duration": [
-        {"permission": "pocketmine.group.user", "value": "1 week"}
-    ],
     "item_registry": {
         "main_menu_personal_listings": {
             "id": "diamond",
@@ -186,7 +183,6 @@
                 "&r&7=========================",
                 "&r&a&lClick here to claim item.",
                 "",
-                "&r&6Item Deletion: &e{deletion}",
                 "&r&7========================="
             ]
         },
