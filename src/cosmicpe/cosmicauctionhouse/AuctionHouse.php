@@ -45,12 +45,6 @@ final class AuctionHouse{
 
 	/**
 	 * @param TaskScheduler $scheduler
-	 * @param AuctionHousePermissionEvaluator<float> $sell_price_min
-	 * @param AuctionHousePermissionEvaluator<float> $sell_price_max
-	 * @param AuctionHousePermissionEvaluator<float> $sell_tax_rate
-	 * @param AuctionHousePermissionEvaluator<int> $max_listings
-	 * @param AuctionHousePermissionEvaluator<int> $expiry_duration
-	 * @param AuctionHousePermissionEvaluator<int> $deletion_duration
 	 * @param array<non-empty-string, Item> $item_registry
 	 * @param array<int, array{non-empty-string, non-empty-string|null}> $layout_main_menu
 	 * @param array<int, array{non-empty-string, non-empty-string|null}> $layout_personal_listing
@@ -62,16 +56,16 @@ final class AuctionHouse{
 	 * @param array{string, string} $message_purchase_success
 	 * @param array{string, string} $message_listing_failed_exceed_limit
 	 * @param Database $database
+	 * @param AuctionHousePermissionEvaluator<float> $sell_price_min
+	 * @param AuctionHousePermissionEvaluator<float> $sell_price_max
+	 * @param AuctionHousePermissionEvaluator<float> $sell_tax_rate
+	 * @param AuctionHousePermissionEvaluator<int> $max_listings
+	 * @param AuctionHousePermissionEvaluator<int> $expiry_duration
+	 * @param AuctionHousePermissionEvaluator<int> $deletion_duration
 	 * @param AuctionHouseEconomy $economy
 	 */
 	public function __construct(
 		readonly private TaskScheduler $scheduler,
-		readonly public AuctionHousePermissionEvaluator $sell_price_min,
-		readonly public AuctionHousePermissionEvaluator $sell_price_max,
-		readonly public AuctionHousePermissionEvaluator $sell_tax_rate,
-		readonly public AuctionHousePermissionEvaluator $max_listings,
-		readonly public AuctionHousePermissionEvaluator $expiry_duration,
-		readonly public AuctionHousePermissionEvaluator $deletion_duration,
 		readonly public array $item_registry,
 		readonly public array $layout_main_menu,
 		readonly public array $layout_personal_listing,
@@ -83,6 +77,12 @@ final class AuctionHouse{
 		readonly public array $message_purchase_success,
 		readonly public array $message_listing_failed_exceed_limit,
 		readonly public Database $database,
+		public AuctionHousePermissionEvaluator $sell_price_min,
+		public AuctionHousePermissionEvaluator $sell_price_max,
+		public AuctionHousePermissionEvaluator $sell_tax_rate,
+		public AuctionHousePermissionEvaluator $max_listings,
+		public AuctionHousePermissionEvaluator $expiry_duration,
+		public AuctionHousePermissionEvaluator $deletion_duration,
 		public AuctionHouseEconomy $economy
 	){
 		$this->lock_purchase = new Mutex();

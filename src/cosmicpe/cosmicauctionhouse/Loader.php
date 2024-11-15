@@ -211,10 +211,9 @@ final class Loader extends PluginBase{
 
 		$undefined_layout_identifiers = array_diff_key($known_layouts, $layouts);
 		count($undefined_layout_identifiers) === 0 || throw new InvalidArgumentException("No configuration specified for menu layout " . implode(", ", array_keys($undefined_layout_identifiers)));
-		return new AuctionHouse($this->getScheduler(), $sell_price_min, $sell_price_max, $sell_tax_rate, $max_listings, $expiry_duration, $deletion_duration,
-			$item_registry, $layouts["main_menu"], $layouts["personal_listing"], $layouts["collection_bin"], $layouts["confirm_buy"], $layouts["confirm_sell"],
+		return new AuctionHouse($this->getScheduler(), $item_registry, $layouts["main_menu"], $layouts["personal_listing"], $layouts["collection_bin"], $layouts["confirm_buy"], $layouts["confirm_sell"],
 			$known_messages["purchase_failed_listing_no_longer_available"], $known_messages["withdraw_failed_listing_no_longer_available"], $known_messages["purchase_success"], $known_messages["listing_failed_exceed_limit"],
-			$this->database, NullAuctionHouseEconomy::instance());
+			$this->database, $sell_price_min, $sell_price_max, $sell_tax_rate, $max_listings, $expiry_duration, $deletion_duration, NullAuctionHouseEconomy::instance());
 	}
 
 	public function getAuctionHouse() : AuctionHouse{
