@@ -77,34 +77,64 @@ final class Loader extends PluginBase{
 			throw new InvalidArgumentException($e->getMessage(), $e->getCode(), $e);
 		}
 
-		$read_positive_numeric_simple = function(string $identifier) use($data) : int|float{
+		/**
+		 * @param string $identifier
+		 * @param "int"|"float" $type
+		 * @return AuctionHousePermissionEvaluator<int>|AuctionHousePermissionEvaluator<float>
+		 */
+		$read_positive_numeric_evaluator = function(string $identifier, string $type) use($data) : AuctionHousePermissionEvaluator{
 			isset($data[$identifier]) || throw new InvalidArgumentException("'{$identifier}' directive not found");
-			is_int($data[$identifier]) || is_float($data[$identifier]) || throw new InvalidArgumentException("'{$identifier}' must be an int|float, got " . gettype($data[$identifier]));
-			$data[$identifier] >= 0 || throw new InvalidArgumentException("'{$identifier}' must be >= 0, got {$data[$identifier]}");
-			return $data[$identifier];
+			is_array($data[$identifier]) || throw new InvalidArgumentException("'{$identifier}' directive must be an array, got " . get_debug_type($data[$identifier]));
+			array_is_list($data[$identifier]) || throw new InvalidArgumentException("'{$identifier}' directive must be a list");
+			$values = [];
+			foreach($data[$identifier] as $index => $entry){
+				is_array($entry) || throw new InvalidArgumentException("Entry in '{$identifier}' directive must be an array (at {$index}), got " . get_debug_type($entry));
+				isset($entry["permission"]) || throw new InvalidArgumentException("'name' in '{$identifier}' directive (at {$index}) not specified");
+				is_string($entry["permission"]) || throw new InvalidArgumentException("'permission' in '{$identifier}' directive (at {$index}) must be string, got " . get_debug_type($entry["permission"]));
+				isset($entry["value"]) || throw new InvalidArgumentException("'value' in '{$identifier}' directive (at {$index}) not specified");
+				match($type){
+					"int" => is_int($entry["value"]),
+					"float" => is_float($entry["value"]) || is_int($entry["value"]),
+					default => throw new InvalidArgumentException("Invalid type: {$type}")
+				} || throw new InvalidArgumentException("'value' in '{$identifier}' directive (at {$index}) must be {$type}, got " . get_debug_type($entry["value"]));
+				$entry["value"] >= 0 || throw new InvalidArgumentException("'value' in '{$identifier}' directive (at {$index}) must be >= 0, got " . $entry["value"]);
+				$values[] = [$entry["permission"], $entry["value"]];
+			}
+			return new AuctionHousePermissionEvaluator($values);
 		};
 
-		$read_relative_time = function(string $identifier) use($data) : int{
+		/**
+		 * @param string $identifier
+		 * @return AuctionHousePermissionEvaluator<int>
+		 */
+		$read_relative_time = function(string $identifier) use($data) : AuctionHousePermissionEvaluator{
 			isset($data[$identifier]) || throw new InvalidArgumentException("'{$identifier}' directive not found");
-			is_string($data[$identifier]) || throw new InvalidArgumentException("'{$identifier}' must be a string, got " . gettype($data[$identifier]));
-			$now = time();
-			$value = strtotime("+{$data[$identifier]}");
-			($value !== false && $value >= $now) || throw new InvalidArgumentException("Improperly formatted expiry duration: {$data[$identifier]}");
-			$value -= $now;
-			return $value;
+			is_array($data[$identifier]) || throw new InvalidArgumentException("'{$identifier}' directive must be an array, got " . get_debug_type($data[$identifier]));
+			array_is_list($data[$identifier]) || throw new InvalidArgumentException("'{$identifier}' directive must be a list");
+			$values = [];
+			foreach($data[$identifier] as $index => $entry){
+				is_array($entry) || throw new InvalidArgumentException("Entry in '{$identifier}' directive must be an array (at {$index}), got " . get_debug_type($entry));
+				isset($entry["permission"]) || throw new InvalidArgumentException("'name' in '{$identifier}' directive (at {$index}) not specified");
+				is_string($entry["permission"]) || throw new InvalidArgumentException("'permission' in '{$identifier}' directive (at {$index}) must be string, got " . get_debug_type($entry["permission"]));
+				isset($entry["value"]) || throw new InvalidArgumentException("'value' in '{$identifier}' directive (at {$index}) not specified");
+				is_string($entry["value"]) || throw new InvalidArgumentException("'value' in '{$identifier}' directive (at {$index}) must be string, got " . get_debug_type($entry["value"]));
+
+				$now = time();
+				$value = strtotime("+{$entry["value"]}");
+				($value !== false && $value >= $now) || throw new InvalidArgumentException("'value' in '{$identifier}' directive (at {$index}) is improperly formatted, got " . $entry["value"]);
+				$value -= $now;
+				$values[] = [$entry["permission"], $value];
+			}
+			return new AuctionHousePermissionEvaluator($values);
 		};
 
-		$sell_price_min = $read_positive_numeric_simple("sell_price_min");
-		$sell_price_max = $read_positive_numeric_simple("sell_price_max");
-		$sell_tax_rate = $read_positive_numeric_simple("sell_tax_rate");
-		$max_listings = $read_positive_numeric_simple("max_listings");
+		$sell_price_min = $read_positive_numeric_evaluator("sell_price_min", "float");
+		$sell_price_max = $read_positive_numeric_evaluator("sell_price_max", "float");
+		$sell_tax_rate = $read_positive_numeric_evaluator("sell_tax_rate", "float");
+		$max_listings = $read_positive_numeric_evaluator("max_listings", "int");
 
 		$expiry_duration = $read_relative_time("expiry_duration");
 		$deletion_duration = $read_relative_time("deletion_duration");
-
-		$sell_price_max >= $sell_price_min || throw new InvalidArgumentException("'sell_price_max' ({$sell_price_max}) must be >= 'sell_price_min' ({$sell_price_min}})");
-		is_int($max_listings) || throw new InvalidArgumentException("'max_listings' must be an integer");
-		$sell_tax_rate /= 100.0;
 
 		$internal_items = [AuctionHouse::ITEM_ID_PERSONAL_LISTING, AuctionHouse::ITEM_ID_CONFIRM_BUY, AuctionHouse::ITEM_ID_CONFIRM_SELL, AuctionHouse::ITEM_ID_MAIN_MENU, AuctionHouse::ITEM_ID_COLLECTION_BIN];
 		isset($data["item_registry"]) || throw new InvalidArgumentException("'item_registry' directive not found");
@@ -222,7 +252,13 @@ final class Loader extends PluginBase{
 						return;
 					}
 
-					yield from $this->auction_house->sendSellConfirmation($player, $item, $price);
+					try{
+						yield from $this->auction_house->sendSellConfirmation($player, $item, $price);
+					}catch(InvalidArgumentException $e){
+						if($player->isConnected()){
+							$player->sendMessage(TextFormat::RED . $e->getMessage());
+						}
+					}
 				}
 			}
 		}finally{

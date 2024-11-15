@@ -45,12 +45,12 @@ final class AuctionHouse{
 
 	/**
 	 * @param TaskScheduler $scheduler
-	 * @param float $sell_price_min
-	 * @param float $sell_price_max
-	 * @param float $sell_tax_rate
-	 * @param int $max_listings
-	 * @param int $expiry_duration
-	 * @param int $deletion_duration
+	 * @param AuctionHousePermissionEvaluator<float> $sell_price_min
+	 * @param AuctionHousePermissionEvaluator<float> $sell_price_max
+	 * @param AuctionHousePermissionEvaluator<float> $sell_tax_rate
+	 * @param AuctionHousePermissionEvaluator<int> $max_listings
+	 * @param AuctionHousePermissionEvaluator<int> $expiry_duration
+	 * @param AuctionHousePermissionEvaluator<int> $deletion_duration
 	 * @param array<non-empty-string, Item> $item_registry
 	 * @param array<int, array{non-empty-string, non-empty-string|null}> $layout_main_menu
 	 * @param array<int, array{non-empty-string, non-empty-string|null}> $layout_personal_listing
@@ -66,12 +66,12 @@ final class AuctionHouse{
 	 */
 	public function __construct(
 		readonly private TaskScheduler $scheduler,
-		readonly public float $sell_price_min,
-		readonly public float $sell_price_max,
-		readonly public float $sell_tax_rate,
-		readonly public int $max_listings,
-		readonly public int $expiry_duration,
-		readonly public int $deletion_duration,
+		readonly public AuctionHousePermissionEvaluator $sell_price_min,
+		readonly public AuctionHousePermissionEvaluator $sell_price_max,
+		readonly public AuctionHousePermissionEvaluator $sell_tax_rate,
+		readonly public AuctionHousePermissionEvaluator $max_listings,
+		readonly public AuctionHousePermissionEvaluator $expiry_duration,
+		readonly public AuctionHousePermissionEvaluator $deletion_duration,
 		readonly public array $item_registry,
 		readonly public array $layout_main_menu,
 		readonly public array $layout_personal_listing,
@@ -331,7 +331,7 @@ final class AuctionHouse{
 				$uuids = yield from $this->database->getPlayerBin($player->getUniqueId()->getBytes());
 				$contents = array_map(fn($uuid) => $this->formatInternalItem($this->entries[$uuid]->item, self::ITEM_ID_COLLECTION_BIN, [
 					"{price}" => $this->entries[$uuid]->price,
-					"{deletion}" => Utils::formatTimeDiff(($this->entries[$uuid]->expiry_time + $this->deletion_duration) - time())
+					"{deletion}" => Utils::formatTimeDiff(($this->entries[$uuid]->expiry_time + $this->deletion_duration->evaluate($player)) - time())
 				]), $uuids);
 				foreach($this->layout_collection_bin as $slot => [$identifier, ]){
 					$contents[$slot] = $this->item_registry[$identifier];
@@ -452,9 +452,16 @@ final class AuctionHouse{
 	 * @return Generator<mixed, Await::RESOLVE, void, bool>
 	 */
 	public function sendSellConfirmation(Player $player, Item $item, float $price) : Generator{
+		$sell_price_min = $this->sell_price_min->evaluate($player);
+		$sell_price_max = $this->sell_price_max->evaluate($player);
+		$price >= $sell_price_min || throw new InvalidArgumentException("Sell price (" . sprintf("%.2f", $price) . ") must be at least \$" . sprintf("%.2f", $sell_price_min) . ".");
+		$price <= $sell_price_max || throw new InvalidArgumentException("Sell price (" . sprintf("%.2f", $price) . ") must not exceed \$" . sprintf("%.2f", $sell_price_max) . ".");
+		$tax_rate = $this->sell_tax_rate->evaluate($player);
+		$max_listings = $this->max_listings->evaluate($player);
+		$expiry_duration = $this->expiry_duration->evaluate($player);
 		$replacement_pairs = [
 			"{price}" => $price, "{seller}" => $player->getName(), "{item}" => $item->getName(), "{count}" => $item->getCount(),
-			"{fee_value}" => sprintf("%.2f", $this->sell_tax_rate * $price), "{fee_pct}" => sprintf("%.2f", $this->sell_tax_rate * 100)
+			"{fee_value}" => sprintf("%.2f", $tax_rate * $price), "{fee_pct}" => sprintf("%.2f", $tax_rate * 100)
 		];
 		$contents = [];
 		foreach($this->layout_confirm_sell as $slot => [$identifier, ]){
@@ -491,14 +498,16 @@ final class AuctionHouse{
 			assert($action === "confirm");
 
 			["binned" => $binned, "listings" => $listings] = yield from $this->database->getPlayerStats($player->getUniqueId()->getBytes());
-			if($binned + $listings >= $this->max_listings){
+			if($binned + $listings >= $max_listings){
 				$result = false;
-				$player->sendToastNotification($this->message_listing_failed_exceed_limit[0], strtr($this->message_listing_failed_exceed_limit[1], ["{limit}" => $this->max_listings]));
+				if($player->isConnected()){
+					$player->sendToastNotification($this->message_listing_failed_exceed_limit[0], strtr($this->message_listing_failed_exceed_limit[1], ["{limit}" => $max_listings]));
+				}
 				continue;
 			}
 
 			$menu->setListener(InvMenu::readonly());
-			$entry = AuctionHouseEntry::new($player, $price, $item, time() + $this->expiry_duration);
+			$entry = AuctionHouseEntry::new($player, $price, $item, time() + $expiry_duration);
 			yield from $this->database->add($entry);
 			$this->entries[$entry->uuid] = $entry;
 			$result = true;
