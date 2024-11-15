@@ -164,19 +164,6 @@ final class AuctionHouse{
 		$state = "refresh";
 		while(true){
 			if($state === "refresh"){
-				if($total_pages !== -1){
-					// not the first call, so wait before refreshing...
-					$refreshing_icon = VanillaBlocks::BARRIER()->asItem()
-						->setCustomName(TextFormat::RESET . TextFormat::BOLD . TextFormat::RED . "Refreshing...")
-						->setLore([TextFormat::RESET . TextFormat::GRAY . "Please wait."]);
-					foreach($this->layout_main_menu as $slot => [, $action]){
-						if($action === "refresh"){
-							$menu->getInventory()->setItem($slot, $refreshing_icon);
-						}
-					}
-					$menu->setListener(InvMenu::readonly());
-					yield from $this->sleep(20);
-				}
 				[$uuids, ["binned" => $binned, "listings" => $listings]] = yield from Await::all([
 					$this->database->list(($page - 1) * self::ENTRIES_PER_PAGE, self::ENTRIES_PER_PAGE),
 					$this->database->getPlayerStats($player->getUniqueId()->getBytes())
@@ -204,6 +191,18 @@ final class AuctionHouse{
 				$menu->setListener(InvMenu::readonly());
 				$menu->getInventory()->setContents($contents);
 				$state = "menu";
+			}elseif($state === "wait_and_refresh"){
+				$refreshing_icon = VanillaBlocks::BARRIER()->asItem()
+					->setCustomName(TextFormat::RESET . TextFormat::BOLD . TextFormat::RED . "Refreshing...")
+					->setLore([TextFormat::RESET . TextFormat::GRAY . "Please wait."]);
+				foreach($this->layout_main_menu as $slot => [, $action]){
+					if($action === "refresh"){
+						$menu->getInventory()->setItem($slot, $refreshing_icon);
+					}
+				}
+				$menu->setListener(InvMenu::readonly());
+				yield from $this->sleep(20);
+				$state = "refresh";
 			}elseif($state === "menu"){
 				try{
 					/** @var DeterministicInvMenuTransaction $transaction */
@@ -235,7 +234,7 @@ final class AuctionHouse{
 						$state = "refresh";
 					}
 				}elseif($action === "refresh"){
-					$state = "refresh";
+					$state = "wait_and_refresh";
 				}elseif($action === "personal_listings"){
 					return "personal_listings";
 				}elseif($action === "collection_bin"){
