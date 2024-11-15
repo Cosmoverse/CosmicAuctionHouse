@@ -1,0 +1,306 @@
+{
+    "sell_price_min": 0.00,
+    "sell_price_max": 999999999999999999.99,
+    "sell_tax_rate": 5.0,
+    "max_listings": 9,
+    "expiry_duration": "1 day",
+    "deletion_duration": "1 week",
+    "item_registry": {
+        "main_menu_personal_listings": {
+            "id": "diamond",
+            "name": "&r&l&eYour Auctions",
+            "lore": [
+                "&r&7Click here to view all of the items you",
+                "&r&7are currently selling on the auction.",
+                "",
+                "&r&e{listings} Item(s)"
+            ]
+        },
+        "main_menu_collection_bin": {
+            "id": "ender_chest",
+            "name": "&r&l&eCollection Bin",
+            "lore": [
+                "&r&7Click here to view and collect all of the",
+                "&r&7items you have cancelled or have expired.",
+                "",
+                "&r&e{binned} Item(s)"
+            ]
+        },
+        "main_menu_page_previous": {
+            "id": "paper",
+            "name": "&r&l&e<- Previous Page",
+            "lore": [
+                "&r&7View the previous page of auctions."
+            ]
+        },
+        "main_menu_refresh": {
+            "id": "chest",
+            "name": "&r&l&6Refresh Auctions",
+            "lore": [
+                "&r&7Click to refresh the currently",
+                "&r&7available auction listings"
+            ]
+        },
+        "main_menu_page_next": {
+            "id": "paper",
+            "name": "&r&l&eNext Page ->",
+            "lore": [
+                "&r&7View the next page of auctions."
+            ]
+        },
+        "main_menu_category_view": {
+            "id": "chest",
+            "name": "&r&l&eCategory View",
+            "lore": [
+                "&r&7Click to view all current",
+                "&r&7auction item categories!"
+            ]
+        },
+        "main_menu_how_to_sell": {
+            "id": "gold_ingot",
+            "name": "&r&l&eHow to Sell",
+            "lore": [
+                "&r&7To list an item on the auction house, just hold",
+                "&r&7the item in your hand and type &e\/ah sell <price>."
+            ]
+        },
+        "main_menu_guide": {
+            "id": "book",
+            "name": "&r&l&eGuide",
+            "lore": [
+                "&r&7This is the auction house, here you can",
+                "&r&7list items for sale and purchase items",
+                "&r&7that others have listed for sale.",
+                "",
+                "&r&7The auction is also a great way to make",
+                "&r&7money by selling farmable items other",
+                "&r&7players may be interested in buying.",
+                "",
+                "&r&eAll sell listings lasdt for a max of &e1 day,",
+                "&r&eunsold items are sent to your collection bin.",
+                "",
+                "&r&eFor more help, use &e\/ah help!"
+            ]
+        },
+        "personal_listings_back": {
+            "id": "chest",
+            "name": "&r&l&eReturn to Auction House",
+            "lore": [
+                "&r&7Click here to return to the",
+                "&r&7auction house main menu."
+            ]
+        },
+        "personal_listings_guide": {
+            "id": "book",
+            "name": "&r&l&eTutorial",
+            "lore": [
+                "&r&7These are your current listings, all of",
+                "&r&7the items you currently have listed on",
+                "&r&7the auction house are displayed here.",
+                "",
+                "&r&7You can cancel and view your listings",
+                "&r&7expire time here."
+            ]
+        },
+        "auction_bin_back": {
+            "id": "chest",
+            "name": "&r&l&eReturn to Auction House",
+            "lore": [
+                "&r&7Click here to return to the",
+                "&r&7auction house main menu."
+            ]
+        },
+        "auction_bin_claim_all": {
+            "id": "ender_chest",
+            "name": "&r&l&eClaim All",
+            "lore": [
+                "&r&7Click here to claim all",
+                "&r&7your Collection Bin items."
+            ]
+        },
+        "auction_bin_guide": {
+            "id": "book",
+            "name": "&r&l&eTutorial",
+            "lore": [
+                "&r&7This page houses all of your cancelled and",
+                "&r&7expired items. When a listing is cancelled",
+                "&r&7or expires, you will be able to obtain that",
+                "&r&7item back from this menu.",
+                "",
+                "&r&7Just click on the item and if you have enough",
+                "&r&7inventory space, you will receive the item."
+            ]
+        },
+        "buy_confirm": {
+            "id": "lime_stained_glass_pane",
+            "name": "&r&l&aConfirm Purchase",
+            "lore": [
+                "&r&7Click to confirm purchase."
+            ]
+        },
+        "buy_deny": {
+            "id": "red_stained_glass_pane",
+            "name": "&r&l&cCancel Purchase",
+            "lore": [
+                "&r&7Click to cancel purchase."
+            ]
+        },
+        "buy_noop": {
+            "id": "gray_stained_glass_pane",
+            "name": "&r",
+            "lore": []
+        },
+        "sell_confirm": {
+            "id": "lime_stained_glass_pane",
+            "name": "&r&l&aConfirm Auction Price",
+            "lore": [
+                "&r&7Click to &l&aaccept&r&7 the auction price for:",
+                "&r{item}",
+                "",
+                "&r&l&ePRICE: &r&e${price}",
+                "&r&l&cLISTING FEE: &r&c${fee_value} ({fee_pct}%)"
+            ]
+        },
+        "sell_deny": {
+            "id": "red_stained_glass_pane",
+            "name": "&r&l&cDecline Auction Price",
+            "lore": [
+                "&r&7Click to &l&cdecline&r&7 the auction price for:",
+                "&r{item}"
+            ]
+        },
+        "__collection_bin:item_preview": {
+            "lore": [
+                "&r&7=========================",
+                "&r&a&lClick here to claim item.",
+                "",
+                "&r&6Item Deletion: &e{deletion}",
+                "&r&7========================="
+            ]
+        },
+        "__confirm_buy:item_preview": {
+            "lore": []
+        },
+        "__confirm_sell:item_preview": {
+            "lore": []
+        },
+        "__main_menu:item_preview": {
+            "lore": [
+                "&r&7=========================",
+                "&r&e&lClick item to buy!",
+                "",
+                "&r&6Price: &e${price}",
+                "&r&6Seller: &e{seller}",
+                "&r&7========================="
+            ]
+        },
+        "__personal_listing:item_preview": {
+            "lore": [
+                "&r&7=========================",
+                "&r&c&lClick item to cancel auction.",
+                "",
+                "&r&6Price: &e${price}",
+                "&r&6Seller: &e{expire}",
+                "&r&7========================="
+            ]
+        }
+    },
+    "menu_layouts": {
+        "main_menu": [
+            {"slot": 45, "item": "main_menu_personal_listings", "action": "personal_listings"},
+            {"slot": 46, "item": "main_menu_collection_bin", "action": "collection_bin"},
+            {"slot": 48, "item": "main_menu_page_previous", "action": "page_previous"},
+            {"slot": 49, "item": "main_menu_refresh", "action": "refresh"},
+            {"slot": 50, "item": "main_menu_page_next", "action": "page_next"},
+            {"slot": 51, "item": "main_menu_category_view", "action": "category_view"},
+            {"slot": 52, "item": "main_menu_how_to_sell", "action": "none"},
+            {"slot": 53, "item": "main_menu_guide", "action": "none"}
+        ],
+        "personal_listing": [
+            {"slot": 45, "item": "personal_listings_back", "action": "back"},
+            {"slot": 53, "item": "personal_listings_guide", "action": "none"}
+        ],
+        "collection_bin": [
+            {"slot": 45, "item": "auction_bin_back", "action": "back"},
+            {"slot": 49, "item": "auction_bin_claim_all", "action": "claim_all"},
+            {"slot": 53, "item": "auction_bin_guide", "action": "guide"}
+        ],
+        "confirm_buy": [
+            {"slot": 0, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 1, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 2, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 3, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 4, "item": "buy_noop", "action": "none"},
+            {"slot": 5, "item": "buy_deny", "action": "deny"},
+            {"slot": 6, "item": "buy_deny", "action": "deny"},
+            {"slot": 7, "item": "buy_deny", "action": "deny"},
+            {"slot": 8, "item": "buy_deny", "action": "deny"},
+            {"slot": 9, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 10, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 11, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 12, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 13, "item": "buy_noop", "action": "none"},
+            {"slot": 14, "item": "buy_deny", "action": "deny"},
+            {"slot": 15, "item": "buy_deny", "action": "deny"},
+            {"slot": 16, "item": "buy_deny", "action": "deny"},
+            {"slot": 17, "item": "buy_deny", "action": "deny"},
+            {"slot": 18, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 19, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 20, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 21, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 22, "item": "__confirm_buy:item_preview", "action": "none"},
+            {"slot": 23, "item": "buy_deny", "action": "deny"},
+            {"slot": 24, "item": "buy_deny", "action": "deny"},
+            {"slot": 25, "item": "buy_deny", "action": "deny"},
+            {"slot": 26, "item": "buy_deny", "action": "deny"},
+            {"slot": 27, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 28, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 29, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 30, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 31, "item": "buy_noop", "action": "none"},
+            {"slot": 32, "item": "buy_deny", "action": "deny"},
+            {"slot": 33, "item": "buy_deny", "action": "deny"},
+            {"slot": 34, "item": "buy_deny", "action": "deny"},
+            {"slot": 35, "item": "buy_deny", "action": "deny"},
+            {"slot": 36, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 37, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 38, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 39, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 40, "item": "buy_noop", "action": "none"},
+            {"slot": 41, "item": "buy_deny", "action": "deny"},
+            {"slot": 42, "item": "buy_deny", "action": "deny"},
+            {"slot": 43, "item": "buy_deny", "action": "deny"},
+            {"slot": 44, "item": "buy_deny", "action": "deny"},
+            {"slot": 45, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 46, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 47, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 48, "item": "buy_confirm", "action": "confirm"},
+            {"slot": 49, "item": "buy_noop", "action": "none"},
+            {"slot": 50, "item": "buy_deny", "action": "deny"},
+            {"slot": 51, "item": "buy_deny", "action": "deny"},
+            {"slot": 52, "item": "buy_deny", "action": "deny"},
+            {"slot": 53, "item": "buy_deny", "action": "deny"}
+        ],
+        "confirm_sell": [
+            {"slot": 0, "item": "sell_confirm", "action": "confirm"},
+            {"slot": 1, "item": "sell_confirm", "action": "confirm"},
+            {"slot": 2, "item": "__confirm_sell:item_preview", "action": "none"},
+            {"slot": 3, "item": "sell_deny", "action": "deny"},
+            {"slot": 4, "item": "sell_deny", "action": "deny"}
+        ]
+    },
+    "messages": {
+        "purchase_failed_listing_no_longer_available": [
+            "&c&lPurchase Failed",
+            "&cThis listing is no longer available for purchase."
+        ],
+        "withdraw_failed_listing_no_longer_available": [
+            "&c&lAction Failed",
+            "&cSomeone has purchased this listing."
+        ],
+        "purchase_success": [
+            "&a&lPurchase Successful",
+            "&a{item}&r &7(x{count}) &ais available in your inventory."
+        ]
+    }
+}
