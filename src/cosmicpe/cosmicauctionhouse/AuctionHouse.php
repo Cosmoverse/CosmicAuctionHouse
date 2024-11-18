@@ -65,6 +65,7 @@ final class AuctionHouse{
 	 * @param array{string, string} $message_bid_success
 	 * @param array{string, string} $message_purchase_success
 	 * @param array{string, string} $message_listing_failed_exceed_limit
+	 * @param array{string, string} $listing_failed_not_enough_balance_tax
 	 * @param Database $database
 	 * @param AuctionHousePermissionEvaluator<float> $sell_price_min
 	 * @param AuctionHousePermissionEvaluator<float> $sell_price_max
@@ -89,6 +90,7 @@ final class AuctionHouse{
 		readonly public array $message_bid_success,
 		readonly public array $message_purchase_success,
 		readonly public array $message_listing_failed_exceed_limit,
+		readonly public array $listing_failed_not_enough_balance_tax,
 		readonly public Database $database,
 		public AuctionHousePermissionEvaluator $sell_price_min,
 		public AuctionHousePermissionEvaluator $sell_price_max,
@@ -646,22 +648,24 @@ final class AuctionHouse{
 	 * @param int|null $bid_duration
 	 * @return Generator<mixed, Await::RESOLVE, void, bool>
 	 */
-	public function sendSellConfirmation(Player $player, Item $item, float $price, ?int $bid_duration = null) : Generator{
+	public function sendSellConfirmation(Player $player, Item $item, float $price, ?int $bid_duration) : Generator{
 		$sell_price_min = $this->sell_price_min->evaluate($player);
 		$sell_price_max = $this->sell_price_max->evaluate($player);
 		$price >= $sell_price_min || throw new InvalidArgumentException("Sell price ({$this->economy->formatBalance($price)}) must be at least \${$this->economy->formatBalance($sell_price_min)}.");
 		$price <= $sell_price_max || throw new InvalidArgumentException("Sell price ({$this->economy->formatBalance($price)}) must not exceed \${$this->economy->formatBalance($sell_price_max)}.");
 		if($bid_duration !== null){
 			$bid_duration_max = $this->bid_duration_max->evaluate($player);
+			$bid_duration_max > 0 || throw new InvalidArgumentException("You do not have permission to place bids.");
 			$bid_duration >= $this->bid_duration_min || throw new InvalidArgumentException("Bid duration (" . Utils::formatTimeDiff($bid_duration) . ") must be at least " . Utils::formatTimeDiff($this->bid_duration_min) . ".");
 			$bid_duration <= $bid_duration_max || throw new InvalidArgumentException("Bid duration (" . Utils::formatTimeDiff($bid_duration) . ") must not exceed " . Utils::formatTimeDiff($bid_duration_max) . ".");
 		}
 		$tax_rate = $this->sell_tax_rate->evaluate($player) * 0.01;
+		$tax_fee = $tax_rate * $price;
 		$max_listings = $this->max_listings->evaluate($player);
 		$expiry_duration = $this->expiry_duration->evaluate($player);
 		$replacement_pairs = [
 			"{price}" => $price, "{seller}" => $player->getName(), "{item}" => $item->getName(), "{count}" => $item->getCount(),
-			"{fee_value}" => $this->economy->formatBalance($tax_rate * $price), "{fee_pct}" => sprintf("%.2f", $tax_rate * 100)
+			"{fee_value}" => $this->economy->formatBalance($tax_fee), "{fee_pct}" => sprintf("%.2f", $tax_rate * 100)
 		];
 		$contents = [];
 		foreach($this->layout_confirm_sell as $slot => [$identifier, ]){
@@ -709,6 +713,15 @@ final class AuctionHouse{
 			$menu->setListener(InvMenu::readonly());
 			yield from $this->lock->acquire();
 			try{
+				try{
+					yield from $this->economy->removeBalance($player->getUniqueId()->getBytes(), $tax_fee);
+				}catch(AuctionHouseException){
+					if($player->isConnected()){
+						$player->sendToastNotification($this->listing_failed_not_enough_balance_tax[0], strtr($this->listing_failed_not_enough_balance_tax[1], $replacement_pairs));
+					}
+					$result = false;
+					break;
+				}
 				$item_id = yield from $this->database->addItem($item);
 				yield from $this->database->add($bid_duration !== null ?
 					AuctionHouseEntry::new($player, $price, $item_id, time() + $bid_duration, AuctionHouseBidInfo::new($player)) :

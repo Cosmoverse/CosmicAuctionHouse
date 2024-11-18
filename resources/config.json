@@ -411,6 +411,10 @@
         "listing_failed_exceed_limit": [
             "&c&lListing Failed",
             "&cYou cannot list more than {limit} items at once."
+        ],
+        "listing_failed_not_enough_balance_tax": [
+            "&c&lListing Failed",
+            "&cYou do not have enough balance to afford the listing tax (${fee_value})."
         ]
     }
 }
