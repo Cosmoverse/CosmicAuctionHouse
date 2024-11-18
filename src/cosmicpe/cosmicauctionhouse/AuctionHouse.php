@@ -145,27 +145,22 @@ final class AuctionHouse{
 	 */
 	private function loadEntries(array $ids) : Generator{
 		$result = [];
-		yield from $this->lock->acquire();
-		try{
-			$tasks = [];
-			foreach($ids as $id){
-				if(isset($this->entry_cache[$id])){
-					$result[$id] = $this->entry_cache[$id];
-				}else{
-					$tasks[$id] = $this->database->get($id);
+		$tasks = [];
+		foreach($ids as $id){
+			if(isset($this->entry_cache[$id])){
+				$result[$id] = $this->entry_cache[$id];
+			}else{
+				$tasks[$id] = $this->database->get($id);
+			}
+		}
+		if(count($tasks) > 0){
+			$loaded = yield from Await::all($tasks);
+			foreach($loaded as $id => $item){
+				if($item !== null){
+					$this->entry_cache[$id] = $item;
+					$result[$id] = $item;
 				}
 			}
-			if(count($tasks) > 0){
-				$loaded = yield from Await::all($tasks);
-				foreach($loaded as $id => $item){
-					if($item !== null){
-						$this->entry_cache[$id] = $item;
-						$result[$id] = $item;
-					}
-				}
-			}
-		}finally{
-			$this->lock->release();
 		}
 		return $result;
 	}
@@ -178,12 +173,12 @@ final class AuctionHouse{
 		$next_runs = [];
 		while(true){
 			if($state === "expiring"){
-				/** @var array<string, AuctionHouseEntry> $entries */
-				$entries = yield from $this->loadEntries(yield from $this->database->expiring(60));
-				$next = null;
-				$now = time();
 				yield from $this->lock->acquire();
 				try{
+					/** @var array<string, AuctionHouseEntry> $entries */
+					$entries = yield from $this->loadEntries(yield from $this->database->expiring(60));
+					$next = null;
+					$now = time();
 					$tasks = [];
 					foreach($entries as $entry){
 						if($entry->expiry_time >= $now){
@@ -304,8 +299,13 @@ final class AuctionHouse{
 					$page = 1;
 					continue;
 				}
-				/** @var array<string, AuctionHouseEntry> $entries */
-				$entries = yield from $this->loadEntries($uuids);
+				yield from $this->lock->acquire();
+				try{
+					/** @var array<string, AuctionHouseEntry> $entries */
+					$entries = yield from $this->loadEntries($uuids);
+				}finally{
+					$this->lock->release();
+				}
 				$items = yield from $this->loadItems(array_map(static fn($e) => $e->item_id, $entries));
 				$contents = [];
 				foreach($entries as $entry){
@@ -382,8 +382,13 @@ final class AuctionHouse{
 					return "main_menu_categorized";
 				}elseif(isset($uuids[$slot])){
 					$uuid = $uuids[$slot];
-					/** @var array<string, AuctionHouseEntry> $entries */
-					$entries = yield from $this->loadEntries([$uuid]);
+					yield from $this->lock->acquire();
+					try{
+						/** @var array<string, AuctionHouseEntry> $entries */
+						$entries = yield from $this->loadEntries($uuids);
+					}finally{
+						$this->lock->release();
+					}
 					if(isset($entries[$uuid])){
 						try{
 							yield from $this->sendPurchaseConfirmation($player, $menu, $entries[$uuid]);
@@ -412,8 +417,13 @@ final class AuctionHouse{
 		while(true){
 			if($state === "refresh"){
 				$uuids = yield from $this->database->getPlayerListings($player->getUniqueId()->getBytes());
-				/** @var array<string, AuctionHouseEntry> $entries */
-				$entries = yield from $this->loadEntries($uuids);
+				yield from $this->lock->acquire();
+				try{
+					/** @var array<string, AuctionHouseEntry> $entries */
+					$entries = yield from $this->loadEntries($uuids);
+				}finally{
+					$this->lock->release();
+				}
 				$items = yield from $this->loadItems(array_map(static fn($e) => $e->item_id, $entries));
 
 				$contents = array_map(fn($uuid) => $this->formatInternalItem($items[$entries[$uuid]->item_id], self::ITEM_ID_PERSONAL_LISTING, [
@@ -443,9 +453,9 @@ final class AuctionHouse{
 					continue;
 				}
 				$uuid = $uuids[$slot];
-				$entries = yield from $this->loadEntries([$uuid]);
 				yield from $this->lock->acquire(); // someone could buy the item before user gets to unlist it
 				try{
+					$entries = yield from $this->loadEntries([$uuid]);
 					if(count($entries) > 0){
 						$entry = $entries[$uuids[$slot]];
 						unset($this->entry_cache[$uuids[$slot]]);
@@ -563,9 +573,9 @@ final class AuctionHouse{
 				break;
 			}
 			assert($action === "confirm");
-			$entries = yield from $this->loadEntries([$entry->uuid]);
 			yield from $this->lock->acquire(); // multiple users can view purchase confirmation screen
 			try{
+				$entries = yield from $this->loadEntries([$entry->uuid]);
 				if(count($entries) === 0 || $entry->expiry_time <= time()){
 					$player->sendToastNotification($this->message_purchase_failed_listing_no_longer_available[0], $this->message_purchase_failed_listing_no_longer_available[1]);
 					break;
