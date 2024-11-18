@@ -224,7 +224,22 @@ final class AuctionHouse{
 	 * @return Generator<mixed, Await::RESOLVE, void, void>
 	 */
 	private function processBidExpiration(string $uuid) : Generator{
-		yield from [];
+		/** @var array<string, AuctionHouseEntry> $entries */
+		$entries = yield from $this->loadEntries([$uuid]);
+		if(count($entries) === 0){
+			return;
+		}
+
+		$entry = $entries[$uuid];
+		if($entry->bid_info === null || $entry->bid_info->bidder === null || $entry->bid_info->completed_timestamp !== null){
+			return;
+		}
+
+		yield from Await::all([
+			$this->database->bid(new AuctionHouseBidInfo($entry->bid_info->uuid, $entry->bid_info->bidder, $entry->bid_info->offer, $entry->bid_info->placed_timestamp, time(), $entry->bid_info->offered_timestamp)),
+			$this->database->addToCollectionBin($entry->bid_info->bidder->uuid, $entry->item_id),
+			$this->economy->addBalance($entry->uuid, $entry->bid_info->offer)
+		]);
 	}
 
 	/**
