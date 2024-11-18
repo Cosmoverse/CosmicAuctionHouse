@@ -629,14 +629,14 @@ final class AuctionHouse{
 	public function sendSellConfirmation(Player $player, Item $item, float $price) : Generator{
 		$sell_price_min = $this->sell_price_min->evaluate($player);
 		$sell_price_max = $this->sell_price_max->evaluate($player);
-		$price >= $sell_price_min || throw new InvalidArgumentException("Sell price (" . sprintf("%.2f", $price) . ") must be at least \$" . sprintf("%.2f", $sell_price_min) . ".");
-		$price <= $sell_price_max || throw new InvalidArgumentException("Sell price (" . sprintf("%.2f", $price) . ") must not exceed \$" . sprintf("%.2f", $sell_price_max) . ".");
+		$price >= $sell_price_min || throw new InvalidArgumentException("Sell price ({$this->economy->formatBalance($price)}) must be at least \${$this->economy->formatBalance($sell_price_min)}.");
+		$price <= $sell_price_max || throw new InvalidArgumentException("Sell price ({$this->economy->formatBalance($price)}) must not exceed \${$this->economy->formatBalance($sell_price_max)}.");
 		$tax_rate = $this->sell_tax_rate->evaluate($player) * 0.01;
 		$max_listings = $this->max_listings->evaluate($player);
 		$expiry_duration = $this->expiry_duration->evaluate($player);
 		$replacement_pairs = [
 			"{price}" => $price, "{seller}" => $player->getName(), "{item}" => $item->getName(), "{count}" => $item->getCount(),
-			"{fee_value}" => sprintf("%.2f", $tax_rate * $price), "{fee_pct}" => sprintf("%.2f", $tax_rate * 100)
+			"{fee_value}" => $this->economy->formatBalance($tax_rate * $price), "{fee_pct}" => sprintf("%.2f", $tax_rate * 100)
 		];
 		$contents = [];
 		foreach($this->layout_confirm_sell as $slot => [$identifier, ]){
