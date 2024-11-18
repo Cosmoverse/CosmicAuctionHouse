@@ -71,6 +71,8 @@ final class AuctionHouse{
 	 * @param AuctionHousePermissionEvaluator<float> $sell_tax_rate
 	 * @param AuctionHousePermissionEvaluator<int> $max_listings
 	 * @param AuctionHousePermissionEvaluator<int> $expiry_duration
+	 * @param int $bid_duration_min
+	 * @param AuctionHousePermissionEvaluator<int> $bid_duration_max
 	 * @param AuctionHouseEconomy $economy
 	 */
 	public function __construct(
@@ -93,6 +95,8 @@ final class AuctionHouse{
 		public AuctionHousePermissionEvaluator $sell_tax_rate,
 		public AuctionHousePermissionEvaluator $max_listings,
 		public AuctionHousePermissionEvaluator $expiry_duration,
+		public int $bid_duration_min,
+		public AuctionHousePermissionEvaluator $bid_duration_max,
 		public AuctionHouseEconomy $economy
 	){
 		$this->lock = new Mutex();
@@ -639,13 +643,19 @@ final class AuctionHouse{
 	 * @param Player $player
 	 * @param Item $item
 	 * @param float $price
+	 * @param int|null $bid_duration
 	 * @return Generator<mixed, Await::RESOLVE, void, bool>
 	 */
-	public function sendSellConfirmation(Player $player, Item $item, float $price) : Generator{
+	public function sendSellConfirmation(Player $player, Item $item, float $price, ?int $bid_duration = null) : Generator{
 		$sell_price_min = $this->sell_price_min->evaluate($player);
 		$sell_price_max = $this->sell_price_max->evaluate($player);
 		$price >= $sell_price_min || throw new InvalidArgumentException("Sell price ({$this->economy->formatBalance($price)}) must be at least \${$this->economy->formatBalance($sell_price_min)}.");
 		$price <= $sell_price_max || throw new InvalidArgumentException("Sell price ({$this->economy->formatBalance($price)}) must not exceed \${$this->economy->formatBalance($sell_price_max)}.");
+		if($bid_duration !== null){
+			$bid_duration_max = $this->bid_duration_max->evaluate($player);
+			$bid_duration >= $this->bid_duration_min || throw new InvalidArgumentException("Bid duration (" . Utils::formatTimeDiff($bid_duration) . ") must be at least " . Utils::formatTimeDiff($this->bid_duration_min) . ".");
+			$bid_duration <= $bid_duration_max || throw new InvalidArgumentException("Bid duration (" . Utils::formatTimeDiff($bid_duration) . ") must not exceed " . Utils::formatTimeDiff($bid_duration_max) . ".");
+		}
 		$tax_rate = $this->sell_tax_rate->evaluate($player) * 0.01;
 		$max_listings = $this->max_listings->evaluate($player);
 		$expiry_duration = $this->expiry_duration->evaluate($player);
@@ -700,7 +710,9 @@ final class AuctionHouse{
 			yield from $this->lock->acquire();
 			try{
 				$item_id = yield from $this->database->addItem($item);
-				yield from $this->database->add(AuctionHouseEntry::new($player, $price, $item_id, time() + $expiry_duration, null));
+				yield from $this->database->add($bid_duration !== null ?
+					AuctionHouseEntry::new($player, $price, $item_id, time() + $bid_duration, AuctionHouseBidInfo::new($player)) :
+					AuctionHouseEntry::new($player, $price, $item_id, time() + $expiry_duration, null));
 			}finally{
 				$this->lock->release();
 			}

@@ -133,6 +133,15 @@ final class Loader extends PluginBase{
 		$sell_tax_rate = $read_positive_numeric_evaluator("sell_tax_rate", "float");
 		$max_listings = $read_positive_numeric_evaluator("max_listings", "int");
 		$expiry_duration = $read_relative_time("expiry_duration");
+		$max_bid_duration = $read_relative_time("max_bid_duration");
+
+		isset($data["min_bid_duration"]) || throw new InvalidArgumentException("'min_bid_duration' directive not found");
+		is_string($data["min_bid_duration"]) || throw new InvalidArgumentException("'min_bid_duration' directive must be a string, got " . get_debug_type($data["min_bid_duration"]));
+		$now = time();
+		$value = strtotime("+{$data["min_bid_duration"]}");
+		($value !== false && $value >= $now) || throw new InvalidArgumentException("'min_bid_duration' is improperly formatted, got " . $data["min_bid_duration"]);
+		$value -= $now;
+		$min_bid_duration = $value;
 
 		$internal_items = [AuctionHouse::ITEM_ID_PERSONAL_LISTING, AuctionHouse::ITEM_ID_CONFIRM_BID, AuctionHouse::ITEM_ID_CONFIRM_BUY,
 			AuctionHouse::ITEM_ID_CONFIRM_SELL, AuctionHouse::ITEM_ID_MAIN_MENU_NORMAL, AuctionHouse::ITEM_ID_MAIN_MENU_BID, AuctionHouse::ITEM_ID_COLLECTION_BIN];
@@ -213,7 +222,7 @@ final class Loader extends PluginBase{
 		count($undefined_layout_identifiers) === 0 || throw new InvalidArgumentException("No configuration specified for menu layout " . implode(", ", array_keys($undefined_layout_identifiers)));
 		return new AuctionHouse($this->getScheduler(), $item_registry, $layouts["main_menu"], $layouts["personal_listing"], $layouts["collection_bin"], $layouts["confirm_bid"], $layouts["confirm_buy"], $layouts["confirm_sell"],
 			$known_messages["purchase_failed_listing_no_longer_available"], $known_messages["withdraw_failed_listing_no_longer_available"], $known_messages["bid_success"], $known_messages["purchase_success"], $known_messages["listing_failed_exceed_limit"],
-			$this->database, $sell_price_min, $sell_price_max, $sell_tax_rate, $max_listings, $expiry_duration, NullAuctionHouseEconomy::instance());
+			$this->database, $sell_price_min, $sell_price_max, $sell_tax_rate, $max_listings, $expiry_duration, $min_bid_duration, $max_bid_duration, NullAuctionHouseEconomy::instance());
 	}
 
 	public function getAuctionHouse() : AuctionHouse{

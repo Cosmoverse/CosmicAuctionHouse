@@ -14,6 +14,10 @@
     "expiry_duration": [
         {"permission": "pocketmine.group.user", "value": "1 day"}
     ],
+    "min_bid_duration": "5 minutes",
+    "max_bid_duration": [
+        {"permission": "pocketmine.group.user", "value": "30 minutes"}
+    ],
     "item_registry": {
         "main_menu_personal_listings": {
             "id": "diamond",

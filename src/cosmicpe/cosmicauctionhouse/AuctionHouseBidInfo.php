@@ -4,7 +4,13 @@ declare(strict_types=1);
 
 namespace cosmicpe\cosmicauctionhouse;
 
+use pocketmine\player\Player;
+
 final class AuctionHouseBidInfo{
+
+	public static function new(Player $player) : self{
+		return new self($player->getUniqueId()->getBytes(), null, null, null, null, null);
+	}
 
 	public function __construct(
 		readonly public string $uuid,
