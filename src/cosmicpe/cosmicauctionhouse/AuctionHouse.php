@@ -720,7 +720,7 @@ final class AuctionHouse{
 						$player->sendToastNotification($this->listing_failed_not_enough_balance_tax[0], strtr($this->listing_failed_not_enough_balance_tax[1], $replacement_pairs));
 					}
 					$result = false;
-					break;
+					continue;
 				}
 				$item_id = yield from $this->database->addItem($item);
 				yield from $this->database->add($bid_duration !== null ?
@@ -733,6 +733,14 @@ final class AuctionHouse{
 		}
 		if($player->isConnected()){
 			$player->removeCurrentWindow();
+		}
+		if(!$result){
+			if($player->isConnected()){
+				$player->getInventory()->addItem($item);
+			}else{
+				$item_id = yield from $this->database->addItem($item);
+				yield from $this->database->addToCollectionBin($player->getUniqueId()->getBytes(), $item_id);
+			}
 		}
 		return $result;
 	}

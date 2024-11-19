@@ -12,6 +12,7 @@ use pocketmine\command\CommandSender;
 use pocketmine\event\EventPriority;
 use pocketmine\event\player\PlayerLoginEvent;
 use pocketmine\item\StringToItemParser;
+use pocketmine\item\VanillaItems;
 use pocketmine\player\Player;
 use pocketmine\plugin\PluginBase;
 use pocketmine\utils\Filesystem;
@@ -261,6 +262,7 @@ final class Loader extends PluginBase{
 						return;
 					}
 
+					$player->getInventory()->setItemInHand(VanillaItems::AIR());
 					try{
 						yield from $this->auction_house->sendSellConfirmation($player, $item, $price, null);
 					}catch(InvalidArgumentException $e){
