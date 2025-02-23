@@ -62,7 +62,7 @@
             ]
         },
         "main_menu_category_view": {
-            "id": "chest",
+            "id": "chest_minecart",
             "name": "&r&l&eCategory View",
             "lore": [
                 "&r&7Click to view all current",
@@ -148,7 +148,10 @@
             "id": "lime_stained_glass_pane",
             "name": "&r&l&aConfirm Purchase",
             "lore": [
-                "&r&7Click to confirm purchase."
+                "&r&7Click to confirm purchase.",
+                "",
+                "&r&6Price: &e${price}",
+                "&r&6Seller: &e{seller}"
             ]
         },
         "buy_deny": {
@@ -227,6 +230,9 @@
                 "&r&6Seller: &e{seller}",
                 "&r&7========================="
             ]
+        },
+        "__main_menu:item_preview_grouped": {
+            "lore": ["&r&7{count} item(s)"]
         },
         "__main_menu:item_preview_bid": {
             "lore": [
@@ -415,6 +421,10 @@
         "listing_failed_not_enough_balance_tax": [
             "&c&lListing Failed",
             "&cYou do not have enough balance to afford the listing tax (${fee_value})."
+        ],
+        "listing_success": [
+            "&a&lListing Successful",
+            "&7You successfully listed &a{item}&r &7(x{count}) for &a${price}&7."
         ]
     }
 }

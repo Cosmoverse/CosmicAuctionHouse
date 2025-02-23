@@ -3,21 +3,23 @@
 -- #  { init
 -- #    { players
 CREATE TABLE IF NOT EXISTS auction_house_players(
-    uuid BINARY(16) NOT NULL PRIMARY KEY,
+    uuid CHAR(36) NOT NULL PRIMARY KEY,
     gamertag VARCHAR(15) NOT NULL
 );
 -- #    }
 -- #    { auction_house_items
 CREATE TABLE IF NOT EXISTS auction_house_items(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    item BLOB NOT NULL
+    item BLOB NOT NULL,
+    item_name VARCHAR(255) NOT NULL,
+    item_meta INT NOT NULL
 );
 -- #    }
 -- #    { auction_house
 CREATE TABLE IF NOT EXISTS auction_house(
-    uuid BINARY(16) NOT NULL PRIMARY KEY,
+    uuid CHAR(36) NOT NULL PRIMARY KEY,
     item_id INT NOT NULL,
-    player BINARY(16) NOT NULL,
+    player CHAR(36) NOT NULL,
     price FLOAT NOT NULL,
     listing_time INT NOT NULL,
     expiry_time INT NOT NULL,
@@ -33,8 +35,8 @@ CREATE TABLE IF NOT EXISTS auction_house(
 -- #    }
 -- #    { auction_house_bids
 CREATE TABLE IF NOT EXISTS auction_house_bids(
-    uuid BINARY(16) NOT NULL PRIMARY KEY,
-    bidder BINARY(16) NULL,
+    uuid CHAR(36) NOT NULL PRIMARY KEY,
+    bidder CHAR(36) NULL,
     offer FLOAT NULL,
     placed INT NULL,
     completed INT NULL,
@@ -51,10 +53,10 @@ CREATE TABLE IF NOT EXISTS auction_house_bids(
 -- #    }
 -- #    { auction_house_logs
 CREATE TABLE IF NOT EXISTS auction_house_logs(
-    uuid BINARY(16) NOT NULL PRIMARY KEY,
+    uuid CHAR(36) NOT NULL PRIMARY KEY,
     item_id INT NOT NULL,
-    buyer BINARY(16) NOT NULL,
-    seller BINARY(16) NOT NULL,
+    buyer CHAR(36) NOT NULL,
+    seller CHAR(36) NOT NULL,
     listing_price FLOAT NOT NULL,
     purchase_price FLOAT NOT NULL,
     purchase_time INT NOT NULL,
@@ -74,7 +76,7 @@ CREATE TABLE IF NOT EXISTS auction_house_logs(
 -- #    }
 -- #    { auction_house_collection_bin
 CREATE TABLE IF NOT EXISTS auction_house_collection_bin(
-    uuid BINARY(16) NOT NULL,
+    uuid CHAR(36) NOT NULL,
     item_id INT NOT NULL,
     placement_time INT NOT NULL,
     PRIMARY KEY(uuid, item_id),
@@ -106,7 +108,9 @@ WHERE ah.uuid=:uuid;
 -- #  }
 -- #  { add_item
 -- #    :item string
-INSERT INTO auction_house_items(item) VALUES(:item);
+-- #    :item_name string
+-- #    :item_meta int
+INSERT INTO auction_house_items(item, item_name, item_meta) VALUES(:item, :item_name, :item_meta);
 -- #  }
 -- #  { add
 -- #    :uuid string
@@ -146,15 +150,53 @@ DELETE FROM auction_house_bids WHERE uuid=:uuid;
 -- #  }qq
 -- #  { item
 -- #    :id int
-SELECT item FROM auction_house_items WHERE id=:id;
+SELECT item, item_name, item_meta FROM auction_house_items WHERE id=:id;
 -- #  }
 -- #  { count
 SELECT COUNT(1) AS c FROM auction_house WHERE expiry_time > unixepoch();
+-- #  }
+-- #  { count_group
+-- #    :item_name string
+-- #    :item_meta int
+SELECT COUNT(1) AS c FROM auction_house a
+INNER JOIN auction_house_items ai
+    ON ai.id=a.item_id
+WHERE a.expiry_time > unixepoch() AND ai.item_name=:item_name AND ai.item_meta=:item_meta;
+-- #  }
+-- #  { count_groups
+SELECT COUNT(1) AS c FROM auction_house a
+INNER JOIN auction_house_items ai
+    ON ai.id=a.item_id
+WHERE a.expiry_time > unixepoch()
+GROUP BY ai.item_name || ":" || ai.item_meta;
 -- #  }
 -- #  { list
 -- #    :offset int
 -- #    :length int
 SELECT uuid FROM auction_house WHERE expiry_time > unixepoch() ORDER BY listing_time DESC LIMIT :offset, :length;
+-- #  }
+-- #  { list_group
+-- #    :item_name string
+-- #    :item_meta int
+-- #    :offset int
+-- #    :length int
+SELECT a.uuid FROM auction_house a
+INNER JOIN auction_house_items ai
+    ON ai.id=a.item_id
+WHERE ai.item_name=:item_name AND ai.item_meta=:item_meta AND a.expiry_time > unixepoch()
+ORDER BY a.listing_time DESC
+LIMIT :offset, :length;
+-- #  }
+-- #  { list_groups
+-- #    :offset int
+-- #    :length int
+SELECT a.uuid, ai.item_name, ai.item_meta, COUNT(1) AS c FROM auction_house a
+INNER JOIN auction_house_items ai
+    ON ai.id=a.item_id
+WHERE a.expiry_time > unixepoch()
+GROUP BY ai.item_name || ":" || ai.item_meta
+ORDER BY a.listing_time DESC, ai.item_name, ai.item_meta ASC
+LIMIT :offset, :length;
 -- #  }
 -- #  { expiring
 -- #    :remaining int

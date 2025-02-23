@@ -26,7 +26,6 @@ use function assert;
 use function ceil;
 use function count;
 use function min;
-use function number_format;
 use function sprintf;
 use function str_replace;
 use function strtr;
@@ -40,6 +39,7 @@ final class AuctionHouse{
 	public const string ITEM_ID_CONFIRM_BUY = "__confirm_buy:item_preview";
 	public const string ITEM_ID_CONFIRM_SELL = "__confirm_sell:item_preview";
 	public const string ITEM_ID_MAIN_MENU_NORMAL = "__main_menu:item_preview_normal";
+	public const string ITEM_ID_MAIN_MENU_GROUPED = "__main_menu:item_preview_grouped";
 	public const string ITEM_ID_MAIN_MENU_BID = "__main_menu:item_preview_bid";
 	public const string ITEM_ID_PERSONAL_LISTING = "__personal_listing:item_preview";
 
@@ -65,7 +65,8 @@ final class AuctionHouse{
 	 * @param array{string, string} $message_bid_success
 	 * @param array{string, string} $message_purchase_success
 	 * @param array{string, string} $message_listing_failed_exceed_limit
-	 * @param array{string, string} $listing_failed_not_enough_balance_tax
+	 * @param array{string, string} $message_listing_failed_not_enough_balance_tax
+	 * @param array{string, string} $message_listing_success
 	 * @param Database $database
 	 * @param AuctionHousePermissionEvaluator<float> $sell_price_min
 	 * @param AuctionHousePermissionEvaluator<float> $sell_price_max
@@ -90,7 +91,8 @@ final class AuctionHouse{
 		readonly public array $message_bid_success,
 		readonly public array $message_purchase_success,
 		readonly public array $message_listing_failed_exceed_limit,
-		readonly public array $listing_failed_not_enough_balance_tax,
+		readonly public array $message_listing_failed_not_enough_balance_tax,
+		readonly public array $message_listing_success,
 		readonly public Database $database,
 		public AuctionHousePermissionEvaluator $sell_price_min,
 		public AuctionHousePermissionEvaluator $sell_price_max,
@@ -130,13 +132,11 @@ final class AuctionHouse{
 					$tasks[$id] = $this->database->getItem($id);
 				}
 			}
-			if(count($tasks) > 0){
-				$loaded = yield from Await::all($tasks);
-				foreach($loaded as $id => $item){
-					if($item !== null){
-						$this->item_cache[$id] = $item;
-						$result[$id] = $item;
-					}
+			$loaded = yield from Await::all($tasks);
+			foreach($loaded as $id => $item){
+				if($item !== null){
+					$this->item_cache[$id] = $item;
+					$result[$id] = $item;
 				}
 			}
 		}finally{
@@ -292,7 +292,6 @@ final class AuctionHouse{
 				"main_menu" =>  yield from $this->sendMainMenu($player, $menu),
 				"personal_listings" => yield from $this->sendPersonalListings($player, $menu),
 				"collection_bin" => yield from $this->sendCollectionBin($player, $menu),
-				"main_menu_categorized" => yield from $this->sendMainMenu($player, $menu),
 				default => throw new InvalidArgumentException("Invalid state: {$state}")
 			};
 		}
@@ -306,10 +305,23 @@ final class AuctionHouse{
 	private function sendMainMenu(Player $player, InvMenu $menu) : Generator{
 		$page = 1;
 		$total_pages = -1;
+		$slot = -1;
+		$binned = -1;
+		$listings = -1;
+		$contents = [];
 		$uuids = [];
+		$uuid_groups = [];
+		$group = null;
+		$categorized = false;
 		$state = "refresh";
 		while(true){
 			if($state === "refresh"){
+				$state = match(true){
+					$categorized && $group !== null => "refresh_group",
+					$categorized && $group === null => "refresh_categories",
+					default => "refresh_flat"
+				};
+			}elseif($state === "refresh_flat"){
 				[$count, $uuids, ["binned" => $binned, "listings" => $listings]] = yield from Await::all([
 					$this->database->count(),
 					$this->database->list(($page - 1) * self::ENTRIES_PER_PAGE, self::ENTRIES_PER_PAGE),
@@ -320,6 +332,8 @@ final class AuctionHouse{
 					$page = 1;
 					continue;
 				}
+				$state = "display_flat";
+			}elseif($state === "display_flat"){
 				yield from $this->lock->acquire();
 				try{
 					/** @var array<string, AuctionHouseEntry> $entries */
@@ -331,15 +345,48 @@ final class AuctionHouse{
 				$contents = [];
 				foreach($entries as $entry){
 					$item = $items[$entry->item_id];
-					if($entry->bid_info === null){
-						$contents[] = $this->formatInternalItem($item, self::ITEM_ID_MAIN_MENU_NORMAL, ["{price}" => $entry->price, "{seller}" => $entry->player->gamertag]);
-					}else{
-						$contents[] = $this->formatInternalItem($item, self::ITEM_ID_MAIN_MENU_BID, [
-							"{price}" => $entry->price, "{seller}" => $entry->player->gamertag,
-							"{bidder}" => $entry->bid_info->bidder?->gamertag ?? "-", "{expiry}" => Utils::formatTimeDiff($entry->expiry_time - time())
-						]);
-					}
+					$contents[] = $entry->bid_info === null ? $this->formatInternalItem($item, self::ITEM_ID_MAIN_MENU_NORMAL, [
+						"{price}" => $this->economy->formatBalance($entry->price),
+						"{seller}" => $entry->player->gamertag
+					]) : $this->formatInternalItem($item, self::ITEM_ID_MAIN_MENU_BID, [
+						"{price}" => $this->economy->formatBalance($entry->price),
+						"{seller}" => $entry->player->gamertag,
+						"{bidder}" => $entry->bid_info->bidder?->gamertag ?? "-",
+						"{expiry}" => Utils::formatTimeDiff($entry->expiry_time - time())
+					]);
 				}
+				$state = "populate_menu";
+			}elseif($state === "refresh_categories"){
+				[$count, $uuid_groups, ["binned" => $binned, "listings" => $listings]] = yield from Await::all([
+					$this->database->countGroups(),
+					$this->database->listGroups(($page - 1) * self::ENTRIES_PER_PAGE, self::ENTRIES_PER_PAGE),
+					$this->database->getPlayerStats($player->getUniqueId()->getBytes())
+				]);
+				$total_pages = (int) ceil($count / self::ENTRIES_PER_PAGE);
+				if($page > 1 && count($uuid_groups) === 0){
+					$page = 1;
+					continue;
+				}
+				$uuid_groups_indexed = array_column($uuid_groups, null, 0);
+				yield from $this->lock->acquire();
+				try{
+					/** @var array<string, AuctionHouseEntry> $entries */
+					$entries = yield from $this->loadEntries(array_keys($uuid_groups_indexed));
+				}finally{
+					$this->lock->release();
+				}
+				$items = yield from $this->loadItems(array_map(static fn($e) => $e->item_id, $entries));
+				$uuid_groups = [];
+				$contents = [];
+				foreach($entries as $uuid => $entry){
+					$uuid_groups[] = $uuid_groups_indexed[$uuid];
+					$item = $items[$entry->item_id];
+					$item = $this->formatInternalItem((clone $item)->setLore([]), self::ITEM_ID_MAIN_MENU_GROUPED, ["{count}" => $uuid_groups_indexed[$entry->uuid][3]]);
+					$item->setCustomName(TextFormat::RESET . TextFormat::BOLD . $item->getVanillaName());
+					$contents[] = $item;
+				}
+				$state = "populate_menu";
+			}elseif($state === "populate_menu"){
 				$replacement_pairs = ["{binned}" => $binned, "{listings}" => $listings];
 				$replacement_find = array_keys($replacement_pairs);
 				$replacement_replace = array_values($replacement_pairs);
@@ -351,6 +398,25 @@ final class AuctionHouse{
 				$menu->setListener(InvMenu::readonly());
 				$menu->getInventory()->setContents($contents);
 				$state = "menu";
+			}elseif($state === "refresh_group"){
+				$item_name = $group[1];
+				$item_meta = $group[2];
+				[$count, $uuids, ["binned" => $binned, "listings" => $listings]] = yield from Await::all([
+					$this->database->countGroup($item_name, $item_meta),
+					$this->database->listGroup($item_name, $item_meta, ($page - 1) * self::ENTRIES_PER_PAGE, self::ENTRIES_PER_PAGE),
+					$this->database->getPlayerStats($player->getUniqueId()->getBytes())
+				]);
+				$total_pages = (int) ceil($count / self::ENTRIES_PER_PAGE);
+				if($page > 1 && count($uuids) === 0){
+					$page = 1;
+					continue;
+				}
+				if(count($uuids) > 0){
+					$state = "display_flat";
+				}else{
+					$group = null;
+					$state = "refresh";
+				}
 			}elseif($state === "wait_and_refresh"){
 				$refreshing_icon = VanillaBlocks::BARRIER()->asItem()
 					->setCustomName(TextFormat::RESET . TextFormat::BOLD . TextFormat::RED . "Refreshing...")
@@ -400,28 +466,51 @@ final class AuctionHouse{
 				}elseif($action === "collection_bin"){
 					return "collection_bin";
 				}elseif($action === "category_view"){
-					return "main_menu_categorized";
-				}elseif(isset($uuids[$slot])){
-					$uuid = $uuids[$slot];
-					yield from $this->lock->acquire();
-					try{
-						/** @var array<string, AuctionHouseEntry> $entries */
-						$entries = yield from $this->loadEntries($uuids);
-					}finally{
-						$this->lock->release();
-					}
-					if(isset($entries[$uuid])){
-						try{
-							yield from $this->sendPurchaseConfirmation($player, $menu, $entries[$uuid]);
-						}catch(InventoryException){
-							break;
+					$page = 1;
+					if($categorized){
+						if($group === null){
+							$categorized = false;
 						}
-					}elseif($player->isConnected()){
-						$player->sendToastNotification($this->message_purchase_failed_listing_no_longer_available[0], $this->message_purchase_failed_listing_no_longer_available[1]);
+					}else{
+						$categorized = true;
 					}
-					$total_pages = -1;
+					$group = null;
 					$state = "refresh";
+				}else{
+					$state = $categorized ? "menu_select_categories" : "menu_select_flat";
 				}
+			}elseif($state === "menu_select_categories"){
+				if(isset($uuid_groups[$slot]) && $group === null){
+					$page = 1;
+					$group = $uuid_groups[$slot];
+					$state = "refresh_group";
+				}else{
+					$state = "menu_select_flat";
+				}
+			}elseif($state === "menu_select_flat"){
+				if(!isset($uuids[$slot])){
+					$state = "menu";
+					continue;
+				}
+				$uuid = $uuids[$slot];
+				yield from $this->lock->acquire();
+				try{
+					/** @var array<string, AuctionHouseEntry> $entries */
+					$entries = yield from $this->loadEntries([$uuid]);
+				}finally{
+					$this->lock->release();
+				}
+				if(isset($entries[$uuid])){
+					try{
+						yield from $this->sendPurchaseConfirmation($player, $menu, $entries[$uuid]);
+					}catch(InventoryException){
+						break;
+					}
+				}elseif($player->isConnected()){
+					$player->sendToastNotification($this->message_purchase_failed_listing_no_longer_available[0], $this->message_purchase_failed_listing_no_longer_available[1]);
+				}
+				$total_pages = -1;
+				$state = "refresh";
 			}
 		}
 		return null;
@@ -448,7 +537,7 @@ final class AuctionHouse{
 				$items = yield from $this->loadItems(array_map(static fn($e) => $e->item_id, $entries));
 
 				$contents = array_map(fn($uuid) => $this->formatInternalItem($items[$entries[$uuid]->item_id], self::ITEM_ID_PERSONAL_LISTING, [
-					"{price}" => $entries[$uuid]->price,
+					"{price}" => $this->economy->formatBalance($entries[$uuid]->price),
 					"{expire}" => Utils::formatTimeDiff($entries[$uuid]->expiry_time - time())
 				]), $uuids);
 				foreach($this->layout_personal_listing as $slot => [$identifier, ]){
@@ -564,7 +653,7 @@ final class AuctionHouse{
 		$item = $items[$entry->item_id];
 		$price = $entry->bid_info?->offer !== null ? $entry->bid_info->offer : $entry->price;
 		$replacement_pairs = [
-			"{price}" => number_format($price), "{seller}" => $entry->player->gamertag, "{item}" => $item->getName(), "{count}" => $item->getCount(),
+			"{price}" => $this->economy->formatBalance($price), "{seller}" => $entry->player->gamertag, "{item}" => $item->getName(), "{count}" => $item->getCount(),
 			"{bidder}" => $entry->bid_info?->bidder?->gamertag ?? "-", "{expiry}" => Utils::formatTimeDiff($entry->expiry_time - time())
 		];
 		$layout = $entry->bid_info !== null ? $this->layout_confirm_bid : $this->layout_confirm_buy;
@@ -617,7 +706,7 @@ final class AuctionHouse{
 				if($entry->bid_info === null){
 					if($player->isConnected()){
 						$player->getInventory()->addItem($item);
-						$player->sendToastNotification($this->message_purchase_success[0], strtr($this->message_purchase_success[1], ["{item}" => $item->getName(), "{count}" => $item->getCount(), "{price}" => number_format($price)]));
+						$player->sendToastNotification($this->message_purchase_success[0], strtr($this->message_purchase_success[1], ["{item}" => $item->getName(), "{count}" => $item->getCount(), "{price}" => $this->economy->formatBalance($price)]));
 					}else{ // player is offline: place in their collection bin
 						yield from $this->database->addToCollectionBin($player->getUniqueId()->getBytes(), $entry->item_id);
 					}
@@ -631,7 +720,7 @@ final class AuctionHouse{
 					yield from $this->database->bid(new AuctionHouseBidInfo($entry->bid_info->uuid, AuctionHousePlayerIdentification::fromPlayer($player), $price, time(), $entry->bid_info->completed_timestamp, $entry->bid_info->offered_timestamp));
 					unset($this->entry_cache[$entry->uuid]);
 					if($player->isConnected()){
-						$player->sendToastNotification($this->message_bid_success[0], strtr($this->message_bid_success[1], ["{item}" => $item->getName(), "{count}" => $item->getCount(), "{price}" => number_format($price)]));
+						$player->sendToastNotification($this->message_bid_success[0], strtr($this->message_bid_success[1], ["{item}" => $item->getName(), "{count}" => $item->getCount(), "{price}" => $this->economy->formatBalance($price)]));
 					}
 				}
 			}finally{
@@ -664,7 +753,7 @@ final class AuctionHouse{
 		$max_listings = $this->max_listings->evaluate($player);
 		$expiry_duration = $this->expiry_duration->evaluate($player);
 		$replacement_pairs = [
-			"{price}" => $price, "{seller}" => $player->getName(), "{item}" => $item->getName(), "{count}" => $item->getCount(),
+			"{price}" => $this->economy->formatBalance($price), "{seller}" => $player->getName(), "{item}" => $item->getName(), "{count}" => $item->getCount(),
 			"{fee_value}" => $this->economy->formatBalance($tax_fee), "{fee_pct}" => sprintf("%.2f", $tax_rate * 100)
 		];
 		$contents = [];
@@ -717,7 +806,7 @@ final class AuctionHouse{
 					yield from $this->economy->removeBalance($player->getUniqueId()->getBytes(), $tax_fee);
 				}catch(AuctionHouseException){
 					if($player->isConnected()){
-						$player->sendToastNotification($this->listing_failed_not_enough_balance_tax[0], strtr($this->listing_failed_not_enough_balance_tax[1], $replacement_pairs));
+						$player->sendToastNotification($this->message_listing_failed_not_enough_balance_tax[0], strtr($this->message_listing_failed_not_enough_balance_tax[1], $replacement_pairs));
 					}
 					$result = false;
 					continue;
@@ -730,6 +819,9 @@ final class AuctionHouse{
 				$this->lock->release();
 			}
 			$result = true;
+			if($player->isConnected()){
+				$player->sendToastNotification($this->message_listing_success[0], strtr($this->message_listing_success[1], $replacement_pairs));
+			}
 		}
 		if($player->isConnected()){
 			$player->removeCurrentWindow();

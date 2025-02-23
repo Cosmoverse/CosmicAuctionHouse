@@ -6,6 +6,7 @@ namespace cosmicpe\cosmicauctionhouse;
 
 use Generator;
 use Ramsey\Uuid\Uuid;
+use function number_format;
 use function sprintf;
 
 final class NullAuctionHouseEconomy implements AuctionHouseEconomy{
@@ -19,7 +20,7 @@ final class NullAuctionHouseEconomy implements AuctionHouseEconomy{
 	}
 
 	public function formatBalance(float $balance) : string{
-		return sprintf("%.2f", $balance);
+		return number_format($balance, 2);
 	}
 
 	public function getPrecision() : int{
