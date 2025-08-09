@@ -47,7 +47,7 @@ use const JSON_THROW_ON_ERROR;
 
 final class Loader extends PluginBase{
 
-	private const array BALANCE_SUFFIXES = [
+	private const BALANCE_SUFFIXES = [
 		"k" => 10 ** 3,
 		"m" => 10 ** 6,
 		"b" => 10 ** 9

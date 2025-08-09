@@ -8,7 +8,7 @@ use Exception;
 
 final class InventoryException extends Exception{
 
-	public const int ERR_PLAYER_DISCONNECTED = 100001;
-	public const int ERR_INVENTORY_CLOSED = 100002;
-	public const int ERR_INVENTORY_NOT_SENT = 100003;
+	public const ERR_PLAYER_DISCONNECTED = 100001;
+	public const ERR_INVENTORY_CLOSED = 100002;
+	public const ERR_INVENTORY_NOT_SENT = 100003;
 }

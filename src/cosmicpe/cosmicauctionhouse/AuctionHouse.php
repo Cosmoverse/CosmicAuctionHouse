@@ -34,15 +34,15 @@ use function usort;
 
 final class AuctionHouse{
 
-	public const int ENTRIES_PER_PAGE = 45;
-	public const string ITEM_ID_COLLECTION_BIN = "__collection_bin:item_preview";
-	public const string ITEM_ID_CONFIRM_BID = "__confirm_bid:item_preview";
-	public const string ITEM_ID_CONFIRM_BUY = "__confirm_buy:item_preview";
-	public const string ITEM_ID_CONFIRM_SELL = "__confirm_sell:item_preview";
-	public const string ITEM_ID_MAIN_MENU_NORMAL = "__main_menu:item_preview_normal";
-	public const string ITEM_ID_MAIN_MENU_GROUPED = "__main_menu:item_preview_grouped";
-	public const string ITEM_ID_MAIN_MENU_BID = "__main_menu:item_preview_bid";
-	public const string ITEM_ID_PERSONAL_LISTING = "__personal_listing:item_preview";
+	public const ENTRIES_PER_PAGE = 45;
+	public const ITEM_ID_COLLECTION_BIN = "__collection_bin:item_preview";
+	public const ITEM_ID_CONFIRM_BID = "__confirm_bid:item_preview";
+	public const ITEM_ID_CONFIRM_BUY = "__confirm_buy:item_preview";
+	public const ITEM_ID_CONFIRM_SELL = "__confirm_sell:item_preview";
+	public const ITEM_ID_MAIN_MENU_NORMAL = "__main_menu:item_preview_normal";
+	public const ITEM_ID_MAIN_MENU_GROUPED = "__main_menu:item_preview_grouped";
+	public const ITEM_ID_MAIN_MENU_BID = "__main_menu:item_preview_bid";
+	public const ITEM_ID_PERSONAL_LISTING = "__personal_listing:item_preview";
 
 	readonly private Mutex $lock;
 
