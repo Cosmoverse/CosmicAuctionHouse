@@ -1,4 +1,4 @@
--- #!mysql
+-- #!sqlite
 -- #{ auctionhouse
 -- #  { init
 -- #    { players
@@ -147,7 +147,7 @@ DELETE FROM auction_house WHERE uuid=:uuid;
 -- #  { remove_bid
 -- #    :uuid string
 DELETE FROM auction_house_bids WHERE uuid=:uuid;
--- #  }qq
+-- #  }
 -- #  { item
 -- #    :id int
 SELECT item, item_name, item_meta FROM auction_house_items WHERE id=:id;
