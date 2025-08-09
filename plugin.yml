@@ -3,11 +3,11 @@ main: cosmicpe\cosmicauctionhouse\Loader
 api: 5.0.0
 version: 0.0.1
 commands:
-  cah:
+  ah:
     description: View the auction house
-    usage: /cah
+    usage: /ah
     permission: cosmicpe.command.auctionhouse
 permissions:
   cosmicpe.command.auctionhouse:
-    description: Ability to use /cah command
+    description: Ability to use /ah command
     default: true
