@@ -7,6 +7,7 @@ namespace cosmicpe\cosmicauctionhouse;
 use Generator;
 use InvalidArgumentException;
 use JsonException;
+use muqsit\invmenu\InvMenuHandler;
 use pocketmine\command\Command;
 use pocketmine\command\CommandSender;
 use pocketmine\event\EventPriority;
@@ -37,11 +38,20 @@ use function is_int;
 use function is_string;
 use function json_decode;
 use function spl_object_id;
+use function strlen;
+use function strtolower;
 use function strtotime;
+use function substr;
 use function time;
 use const JSON_THROW_ON_ERROR;
 
 final class Loader extends PluginBase{
+
+	private const array BALANCE_SUFFIXES = [
+		"k" => 10 ** 3,
+		"m" => 10 ** 6,
+		"b" => 10 ** 9
+	];
 
 	/** @var array<int, true> */
 	private array $_processing_senders = [];
@@ -50,6 +60,10 @@ final class Loader extends PluginBase{
 	private AuctionHouse $auction_house;
 
 	protected function onEnable() : void{
+		if(!InvMenuHandler::isRegistered()){
+			InvMenuHandler::register($this);
+		}
+
 		$this->saveResource("config.json");
 		$this->database = new Database($this);
 		try{
@@ -234,6 +248,27 @@ final class Loader extends PluginBase{
 		return $this->auction_house;
 	}
 
+	private function validatePositiveFormattedFloat(string $name, string $param) : float{
+		$param_len = strlen($param);
+		$param_len > 0 || throw new InvalidArgumentException("Improperly formatted {$name}, expected number > 0");
+		$suffix = strtolower($param[$param_len - 1]);
+		if(isset(self::BALANCE_SUFFIXES[$suffix])){
+			$multiplier = self::BALANCE_SUFFIXES[$suffix];
+			$param = substr($param, 0, -1);
+		}else{
+			$multiplier = 1;
+		}
+		$float = (float) $param;
+		if($float == 0.0 && $param != 0.0 && $param !== "0"){
+			throw new InvalidArgumentException("{$name} must be an integer");
+		}
+		$result = $float;
+		$result *= $multiplier;
+		$result > 0 || throw new InvalidArgumentException("{$name} must be > 0");
+		return $result;
+	}
+
+
 	/**
 	 * @param Player $player
 	 * @param string $label
@@ -259,9 +294,10 @@ final class Loader extends PluginBase{
 						return;
 					}
 
-					$price = (float) $args[1];
-					if($price < 0){
-						$player->sendMessage(TextFormat::RED . "Please enter a valid price.");
+					try{
+						$price = $this->validatePositiveFormattedFloat("price", $args[1]);
+					}catch(InvalidArgumentException $e){
+						$player->sendMessage(TextFormat::RED . "Please enter a valid price ({$e->getMessage()}).");
 						return;
 					}
 
