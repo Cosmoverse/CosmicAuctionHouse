@@ -1,7 +1,7 @@
 name: CosmicAuctionHouse
 main: cosmicpe\cosmicauctionhouse\Loader
 api: 5.0.0
-version: 0.0.1
+version: 0.0.2
 commands:
   ah:
     description: View the auction house
