@@ -171,6 +171,7 @@ final class AuctionHouse{
 			if(isset($this->entry_cache[$id])){
 				$result[$id] = $this->entry_cache[$id];
 			}else{
+				$result[$id] = null;
 				$tasks[$id] = $this->database->get($id);
 			}
 		}
@@ -180,6 +181,8 @@ final class AuctionHouse{
 				if($item !== null){
 					$this->entry_cache[$id] = $item;
 					$result[$id] = $item;
+				}else{
+					unset($result[$id]);
 				}
 			}
 		}
@@ -356,6 +359,7 @@ final class AuctionHouse{
 				}finally{
 					$this->lock->release();
 				}
+				$uuids = array_keys($entries);
 				$items = yield from $this->loadItems(array_map(static fn($e) => $e->item_id, $entries));
 				$contents = [];
 				foreach($entries as $entry){
@@ -549,6 +553,7 @@ final class AuctionHouse{
 				}finally{
 					$this->lock->release();
 				}
+				$uuids = array_keys($uuids);
 				$items = yield from $this->loadItems(array_map(static fn($e) => $e->item_id, $entries));
 
 				$contents = array_map(fn($uuid) => $this->formatInternalItem($items[$entries[$uuid]->item_id], self::ITEM_ID_PERSONAL_LISTING, [
