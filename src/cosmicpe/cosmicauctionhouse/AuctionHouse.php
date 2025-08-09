@@ -30,6 +30,7 @@ use function sprintf;
 use function str_replace;
 use function strtr;
 use function time;
+use function usort;
 
 final class AuctionHouse{
 
@@ -106,6 +107,20 @@ final class AuctionHouse{
 		$this->lock = new Mutex();
 		$this->database->waitAll();
 		Await::g2c($this->runScheduler());
+	}
+
+	public function setMaxListings(string $permission, int $value) : void{
+		$values = $this->max_listings->values;
+		$values[] = [$permission, $value];
+		usort($values, static fn($a, $b) => $b[1] <=> $a[1]);
+		$this->max_listings = new AuctionHousePermissionEvaluator($values);
+	}
+
+	public function setSellTaxRate(string $permission, float $value) : void{
+		$values = $this->sell_tax_rate->values;
+		$values[] = [$permission, $value];
+		usort($values, static fn($a, $b) => $a[1] <=> $b[1]);
+		$this->sell_tax_rate = new AuctionHousePermissionEvaluator($values);
 	}
 
 	/**
@@ -701,6 +716,17 @@ final class AuctionHouse{
 					if($player->isConnected()){
 						$player->sendToastNotification(TextFormat::RED . TextFormat::BOLD . ($entry->bid_info !== null ? "Bid Failed" : "Purchase Failed"), TextFormat::RED . $e->getMessage());
 					}
+					break;
+				}
+				$ev = new AuctionHousePurchaseEvent($player, $entry, $item);
+				try{
+					$ev->call();
+				}finally{
+					if($ev->isCancelled()){
+						yield from $this->economy->addBalance($player->getUniqueId()->getBytes(), $price);
+					}
+				}
+				if($ev->isCancelled()){
 					break;
 				}
 				if($entry->bid_info === null){
