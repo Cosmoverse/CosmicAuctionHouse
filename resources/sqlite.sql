@@ -230,6 +230,16 @@ INSERT OR REPLACE INTO auction_house_players(uuid, gamertag) VALUES(:uuid, :game
 -- #      :player string
 SELECT uuid FROM auction_house WHERE player=:player AND expiry_time > unixepoch() ORDER BY listing_time DESC LIMIT 45;
 -- #    }
+-- #    { listings_sold
+-- #      :player string
+-- #      :time1 int
+-- #      :time2 int
+SELECT l.item_id, l.purchase_price, l.purchase_time, bp.uuid AS buyer_uuid, bp.gamertag AS buyer_gamertag
+FROM auction_house_logs l
+INNER JOIN auction_house_players bp ON bp.uuid=l.buyer
+WHERE l.seller=:player AND l.purchase_time BETWEEN :time1 AND :time2
+ORDER BY l.purchase_time;
+-- #    }
 -- #    { stats
 -- #      :player string
 SELECT
@@ -237,5 +247,4 @@ SELECT
     (SELECT COUNT(1) FROM auction_house WHERE player=:player) AS listings;
 -- #    }
 -- #  }
-
 -- #}

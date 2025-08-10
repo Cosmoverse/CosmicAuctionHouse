@@ -11,6 +11,7 @@ use muqsit\invmenu\InvMenuHandler;
 use pocketmine\command\Command;
 use pocketmine\command\CommandSender;
 use pocketmine\event\EventPriority;
+use pocketmine\event\player\PlayerJoinEvent;
 use pocketmine\event\player\PlayerLoginEvent;
 use pocketmine\item\StringToItemParser;
 use pocketmine\item\VanillaItems;
@@ -32,6 +33,7 @@ use function get_debug_type;
 use function gettype;
 use function implode;
 use function in_array;
+use function intdiv;
 use function is_array;
 use function is_float;
 use function is_int;
@@ -77,6 +79,20 @@ final class Loader extends PluginBase{
 		}
 		$this->getServer()->getPluginManager()->registerEvent(PlayerLoginEvent::class, function(PlayerLoginEvent $event) : void{
 			Await::g2c($this->database->initPlayer(AuctionHousePlayerIdentification::fromPlayer($event->getPlayer())));
+		}, EventPriority::MONITOR, $this);
+		$this->getServer()->getPluginManager()->registerEvent(PlayerJoinEvent::class, function(PlayerJoinEvent $event) : void{
+			$player = $event->getPlayer();
+			Await::f2c(function() use($player) : Generator{
+				$last_login = $player->getLastPlayed();
+				if($last_login !== null){
+					$sold = yield from $this->database->getPlayerListingsSold($player->getUniqueId()->getBytes(), intdiv($last_login, 1000), time());
+					if($player->isConnected()){
+						foreach($sold as [$buyer, $item, $purchase_price, $purchase_time]){
+							$this->auction_house->notifySellerAboutPurchase($player, $buyer, $item, $purchase_price, $purchase_time);
+						}
+					}
+				}
+			});
 		}, EventPriority::MONITOR, $this);
 	}
 
@@ -222,7 +238,7 @@ final class Loader extends PluginBase{
 		isset($data["messages"]) || throw new InvalidArgumentException("'messages' directive not found");
 		is_array($data["messages"]) || throw new InvalidArgumentException("'messages' must be an array, got " . gettype($data["messages"]));
 		$known_messages = ["purchase_failed_listing_no_longer_available" => null, "withdraw_failed_listing_no_longer_available" => null,
-			"bid_success" => null, "purchase_success" => null, "listing_failed_exceed_limit" => null,
+			"bid_success" => null, "purchase_success" => null, "purchase_success_seller" => null, "listing_failed_exceed_limit" => null,
 			"listing_failed_not_enough_balance_tax" => null, "listing_success" => null];
 		foreach($data["messages"] as $identifier => $message){
 			array_key_exists($identifier, $known_messages) || throw new InvalidArgumentException("Unexpected message identifier '{$identifier}', expected one of: " . implode(", ", array_keys($known_messages)));
@@ -237,9 +253,9 @@ final class Loader extends PluginBase{
 
 		$undefined_layout_identifiers = array_diff_key($known_layouts, $layouts);
 		count($undefined_layout_identifiers) === 0 || throw new InvalidArgumentException("No configuration specified for menu layout " . implode(", ", array_keys($undefined_layout_identifiers)));
-		return new AuctionHouse($this->getScheduler(), $item_registry, $layouts["main_menu"], $layouts["personal_listing"], $layouts["collection_bin"], $layouts["confirm_bid"],
+		return new AuctionHouse($this->getServer(), $this->getScheduler(), $item_registry, $layouts["main_menu"], $layouts["personal_listing"], $layouts["collection_bin"], $layouts["confirm_bid"],
 			$layouts["confirm_buy"], $layouts["confirm_sell"], $known_messages["purchase_failed_listing_no_longer_available"], $known_messages["withdraw_failed_listing_no_longer_available"],
-			$known_messages["bid_success"], $known_messages["purchase_success"], $known_messages["listing_failed_exceed_limit"], $known_messages["listing_failed_not_enough_balance_tax"],
+			$known_messages["bid_success"], $known_messages["purchase_success"], implode(TextFormat::EOL, $known_messages["purchase_success_seller"]), $known_messages["listing_failed_exceed_limit"], $known_messages["listing_failed_not_enough_balance_tax"],
 			$known_messages["listing_success"], $this->database, $sell_price_min, $sell_price_max, $sell_tax_rate, $max_listings, $expiry_duration,
 			$min_bid_duration, $max_bid_duration, NullAuctionHouseEconomy::instance());
 	}

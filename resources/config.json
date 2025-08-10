@@ -414,6 +414,10 @@
             "&a&lPurchase Successful",
             "&a{item}&r &7(x{count}) &7is available in your inventory."
         ],
+        "purchase_success_seller": [
+            "&a&l(!) &r&a{buyer} &7purchased your auction listing of &f{item}&r&7 (x{count}) ({ago})",
+            "&a${price} &7has been deposited into your account."
+        ],
         "listing_failed_exceed_limit": [
             "&c&lListing Failed",
             "&cYou cannot list more than {limit} items at once."

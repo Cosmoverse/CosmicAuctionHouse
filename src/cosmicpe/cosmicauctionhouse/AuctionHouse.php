@@ -13,7 +13,9 @@ use pocketmine\item\Item;
 use pocketmine\player\Player;
 use pocketmine\scheduler\ClosureTask;
 use pocketmine\scheduler\TaskScheduler;
+use pocketmine\Server;
 use pocketmine\utils\TextFormat;
+use pocketmine\world\sound\PopSound;
 use RuntimeException;
 use SOFe\AwaitGenerator\Await;
 use SOFe\AwaitGenerator\Mutex;
@@ -53,6 +55,7 @@ final class AuctionHouse{
 	private array $item_cache = [];
 
 	/**
+	 * @param Server $server
 	 * @param TaskScheduler $scheduler
 	 * @param array<non-empty-string, Item> $item_registry
 	 * @param array<int, array{non-empty-string, non-empty-string|null}> $layout_main_menu
@@ -65,6 +68,7 @@ final class AuctionHouse{
 	 * @param array{string, string} $message_withdraw_failed_listing_no_longer_available
 	 * @param array{string, string} $message_bid_success
 	 * @param array{string, string} $message_purchase_success
+	 * @param string $message_purchase_success_seller
 	 * @param array{string, string} $message_listing_failed_exceed_limit
 	 * @param array{string, string} $message_listing_failed_not_enough_balance_tax
 	 * @param array{string, string} $message_listing_success
@@ -79,6 +83,7 @@ final class AuctionHouse{
 	 * @param AuctionHouseEconomy $economy
 	 */
 	public function __construct(
+		readonly private Server $server,
 		readonly private TaskScheduler $scheduler,
 		readonly public array $item_registry,
 		readonly public array $layout_main_menu,
@@ -91,6 +96,7 @@ final class AuctionHouse{
 		readonly public array $message_withdraw_failed_listing_no_longer_available,
 		readonly public array $message_bid_success,
 		readonly public array $message_purchase_success,
+		readonly public string $message_purchase_success_seller,
 		readonly public array $message_listing_failed_exceed_limit,
 		readonly public array $message_listing_failed_not_enough_balance_tax,
 		readonly public array $message_listing_success,
@@ -661,6 +667,16 @@ final class AuctionHouse{
 		return null;
 	}
 
+	public function notifySellerAboutPurchase(Player $player, AuctionHousePlayerIdentification $buyer, Item $item, float $purchase_price, int $purchase_time) : void{
+		$time_diff = time() - $purchase_time;
+		$replacement_pairs = [
+			"{price}" => $this->economy->formatBalance($purchase_price), "{seller}" => $player->getName(), "{item}" => $item->getName(), "{count}" => $item->getCount(),
+			"{bidder}" => $entry->bid_info?->bidder?->gamertag ?? "-", "{buyer}" => $buyer->gamertag, "{ago}" => $time_diff > 5 ? Utils::formatTimeDiff($time_diff) . " ago" : "just now"
+		];
+		$player->sendMessage(strtr($this->message_purchase_success_seller, $replacement_pairs));
+		$player->getWorld()->addSound($player->getEyePos(), new PopSound(0.8), [$player]);
+	}
+
 	/**
 	 * @param Player $player
 	 * @param InvMenu $menu
@@ -738,6 +754,10 @@ final class AuctionHouse{
 					if($player->isConnected()){
 						$player->getInventory()->addItem($item);
 						$player->sendToastNotification($this->message_purchase_success[0], strtr($this->message_purchase_success[1], ["{item}" => $item->getName(), "{count}" => $item->getCount(), "{price}" => $this->economy->formatBalance($price)]));
+						$seller = $this->server->getPlayerByRawUUID($entry->player->uuid);
+						if($seller !== null){
+							$this->notifySellerAboutPurchase($seller, AuctionHousePlayerIdentification::fromPlayer($player), $item, $price, time());
+						}
 					}else{ // player is offline: place in their collection bin
 						yield from $this->database->addToCollectionBin($player->getUniqueId()->getBytes(), $entry->item_id);
 					}

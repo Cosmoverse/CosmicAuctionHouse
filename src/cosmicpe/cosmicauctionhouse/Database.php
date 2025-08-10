@@ -55,6 +55,7 @@ final class Database{
 	public const STMT_REMOVE = "auctionhouse.remove";
 	public const STMT_PLAYER_INIT = "auctionhouse.player.init";
 	public const STMT_PLAYER_LISTINGS = "auctionhouse.player.listings";
+	public const STMT_PLAYER_LISTINGS_SOLD = "auctionhouse.player.listings_sold";
 	public const STMT_PLAYER_STATS = "auctionhouse.player.stats";
 
 	/** @var Closure(SqlError) : Generator<mixed, Await::RESOLVE, void, void> */
@@ -269,7 +270,7 @@ final class Database{
 		yield from $this->asyncInsert(self::STMT_LOG, [
 			"uuid" => Uuid::fromBytes($entry->uuid)->toString(),
 			"item_id" => $entry->item_id,
-			"buyer" => $buyer,
+			"buyer" => Uuid::fromBytes($buyer)->toString(),
 			"seller" => Uuid::fromBytes($entry->player->uuid)->toString(),
 			"listing_price" => $entry->price,
 			"purchase_price" => $purchase_price,
@@ -367,6 +368,33 @@ final class Database{
 	public function getPlayerListings(string $uuid) : Generator{
 		$rows = yield from $this->asyncSelect(self::STMT_PLAYER_LISTINGS, ["player" => Uuid::fromBytes($uuid)->toString()]);
 		return array_map(static fn($x) => Uuid::fromString($x)->getBytes(), array_column($rows, "uuid"));
+	}
+
+	/**
+	 * @param string $uuid
+	 * @param int $time1
+	 * @param int $time2
+	 * @return Generator<mixed, Await::RESOLVE, void, list<array{AuctionHousePlayerIdentification, Item, float}>>
+	 */
+	public function getPlayerListingsSold(string $uuid, int $time1, int $time2) : Generator{
+		$rows = yield from $this->asyncSelect(self::STMT_PLAYER_LISTINGS_SOLD, ["player" => Uuid::fromBytes($uuid)->toString(), "time1" => $time1, "time2" => $time2]);
+		$items = [];
+		$buyers = [];
+		$purchase_prices = [];
+		foreach($rows as ["item_id" => $item_id, "purchase_price" => $purchase_price, "purchase_time" => $purchase_time, "buyer_uuid" => $buyer_uuid, "buyer_gamertag" => $buyer_gamertag]){
+			$items[] = $this->getItem($item_id);
+			$buyers[] = new AuctionHousePlayerIdentification(Uuid::fromString($buyer_uuid)->getBytes(), $buyer_gamertag);
+			$purchase_prices[] = $purchase_price;
+			$purchase_times[] = $purchase_time;
+		}
+		$items = yield from Await::all($items);
+		$result = [];
+		foreach($items as $index => $item){
+			if($item !== null){
+				$result[] = [$buyers[$index], $item, $purchase_prices[$index], $purchase_times[$index]];
+			}
+		}
+		return $result;
 	}
 
 	/**
