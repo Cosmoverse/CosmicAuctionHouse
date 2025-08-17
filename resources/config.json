@@ -221,6 +221,19 @@
         "__confirm_sell:item_preview": {
             "lore": []
         },
+        "__log_menu:item_preview": {
+            "lore": [
+                "&r&7=========================",
+                "&r&e&lClick to receive item!",
+                "",
+                "&r&6Buyer: &e{buyer}",
+                "&r&6Seller: &e{seller}",
+                "&r&6Listing Price: &e${listing_price}",
+                "&r&6Purchase Price: &e${purchase_price}",
+                "&r&6Purchase Time: &e{purchase_time}",
+                "&r&7========================="
+            ]
+        },
         "__main_menu:item_preview_normal": {
             "lore": [
                 "&r&7=========================",
@@ -267,6 +280,11 @@
             {"slot": 51, "item": "main_menu_category_view", "action": "category_view"},
             {"slot": 52, "item": "main_menu_how_to_sell", "action": "none"},
             {"slot": 53, "item": "main_menu_guide", "action": "none"}
+        ],
+        "log_menu": [
+            {"slot": 48, "item": "main_menu_page_previous", "action": "page_previous"},
+            {"slot": 49, "item": "main_menu_refresh", "action": "refresh"},
+            {"slot": 50, "item": "main_menu_page_next", "action": "page_next"}
         ],
         "personal_listing": [
             {"slot": 45, "item": "personal_listings_back", "action": "back"},

@@ -51,11 +51,16 @@ final class Database{
 	public const STMT_LIST = "auctionhouse.list";
 	public const STMT_LIST_GROUP = "auctionhouse.list_group";
 	public const STMT_LIST_GROUPS = "auctionhouse.list_groups";
-	public const STMT_LOG = "auctionhouse.log";
+	public const STMT_LOG_NEW = "auctionhouse.logs.new";
+	public const STMT_LOG_ALL = "auctionhouse.logs.all";
+	public const STMT_LOG_ALL_COUNT = "auctionhouse.logs.all_count";
+	public const STMT_LOG_PLAYER = "auctionhouse.logs.player";
+	public const STMT_LOG_PLAYER_COUNT = "auctionhouse.logs.player_count";
 	public const STMT_REMOVE = "auctionhouse.remove";
 	public const STMT_PLAYER_INIT = "auctionhouse.player.init";
 	public const STMT_PLAYER_LISTINGS = "auctionhouse.player.listings";
 	public const STMT_PLAYER_LISTINGS_SOLD = "auctionhouse.player.listings_sold";
+	public const STMT_PLAYER_LOOKUP_GAMERTAG = "auctionhouse.player.lookup_gamertag";
 	public const STMT_PLAYER_STATS = "auctionhouse.player.stats";
 
 	/** @var Closure(SqlError) : Generator<mixed, Await::RESOLVE, void, void> */
@@ -267,7 +272,7 @@ final class Database{
 	 * @return Generator<mixed, Await::RESOLVE, void, void>
 	 */
 	public function log(AuctionHouseEntry $entry, string $buyer, float $purchase_price, int $purchase_time) : Generator{
-		yield from $this->asyncInsert(self::STMT_LOG, [
+		yield from $this->asyncInsert(self::STMT_LOG_NEW, [
 			"uuid" => Uuid::fromBytes($entry->uuid)->toString(),
 			"item_id" => $entry->item_id,
 			"buyer" => Uuid::fromBytes($buyer)->toString(),
@@ -276,6 +281,44 @@ final class Database{
 			"purchase_price" => $purchase_price,
 			"purchase_time" => $purchase_time
 		]);
+	}
+
+	/**
+	 * @param string|null $player_uuid
+	 * @return Generator<mixed, Await::RESOLVE, void, int>
+	 */
+	public function getLogsLength(?string $player_uuid = null) : Generator{
+		if($player_uuid !== null){
+			$rows = yield from $this->asyncSelect(self::STMT_LOG_PLAYER_COUNT, ["player" => Uuid::fromBytes($player_uuid)->toString()]);
+		}else{
+			$rows = yield from $this->asyncSelect(self::STMT_LOG_ALL_COUNT);
+		}
+		return $rows[0]["c"] ?? 0;
+	}
+
+	/**
+	 * @param int $offset
+	 * @param int $length
+	 * @param string|null $player_uuid
+	 * @return Generator<mixed, Await::RESOLVE, void, list<AuctionHouseLog>>
+	 */
+	public function getLogs(int $offset, int $length, ?string $player_uuid = null) : Generator{
+		if($player_uuid !== null){
+			$rows = yield from $this->asyncSelect(self::STMT_LOG_PLAYER, ["offset" => $offset, "length" => $length, "player" => Uuid::fromBytes($player_uuid)->toString()]);
+		}else{
+			$rows = yield from $this->asyncSelect(self::STMT_LOG_ALL, ["offset" => $offset, "length" => $length]);
+		}
+		$result = [];
+		foreach($rows as [
+			"uuid" => $uuid, "item_id" => $item_id, "listing_price" => $listing_price, "purchase_price" => $purchase_price,
+			"purchase_time" => $purchase_time, "buyer_uuid" => $buyer_uuid, "buyer_gamertag" => $buyer_gamertag,
+			"seller_uuid" => $seller_uuid, "seller_gamertag" => $seller_gamertag
+		]){
+			$buyer = new AuctionHousePlayerIdentification(Uuid::fromString($buyer_uuid)->getBytes(), $buyer_gamertag);
+			$seller = new AuctionHousePlayerIdentification(Uuid::fromString($seller_uuid)->getBytes(), $seller_gamertag);
+			$result[] = new AuctionHouseLog(Uuid::fromString($uuid)->getBytes(), $item_id, $buyer, $seller, $listing_price, $purchase_price, $purchase_time);
+		}
+		return $result;
 	}
 
 	/**
@@ -346,6 +389,18 @@ final class Database{
 	 */
 	public function initPlayer(AuctionHousePlayerIdentification $player) : Generator{
 		yield from $this->asyncInsert(self::STMT_PLAYER_INIT, ["uuid" => Uuid::fromBytes($player->uuid)->toString(), "gamertag" => $player->gamertag]);
+	}
+
+	/**
+	 * @param string $gamertag
+	 * @return Generator<mixed, Await::RESOLVE, void, AuctionHousePlayerIdentification|null>
+	 */
+	public function lookupGamertag(string $gamertag) : Generator{
+		$rows = yield from $this->asyncSelect(self::STMT_PLAYER_LOOKUP_GAMERTAG, ["gamertag" => $gamertag]);
+		if(count($rows) === 0){
+			return null;
+		}
+		return new AuctionHousePlayerIdentification(Uuid::fromString($rows[0]["uuid"])->getBytes(), $rows[0]["gamertag"]);
 	}
 
 	/**

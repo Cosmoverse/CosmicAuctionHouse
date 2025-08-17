@@ -10,6 +10,7 @@ use muqsit\invmenu\InvMenu;
 use muqsit\invmenu\transaction\DeterministicInvMenuTransaction;
 use pocketmine\block\VanillaBlocks;
 use pocketmine\item\Item;
+use pocketmine\item\VanillaItems;
 use pocketmine\player\Player;
 use pocketmine\scheduler\ClosureTask;
 use pocketmine\scheduler\TaskScheduler;
@@ -27,6 +28,7 @@ use function array_values;
 use function assert;
 use function ceil;
 use function count;
+use function date;
 use function min;
 use function sprintf;
 use function str_replace;
@@ -41,6 +43,7 @@ final class AuctionHouse{
 	public const ITEM_ID_CONFIRM_BID = "__confirm_bid:item_preview";
 	public const ITEM_ID_CONFIRM_BUY = "__confirm_buy:item_preview";
 	public const ITEM_ID_CONFIRM_SELL = "__confirm_sell:item_preview";
+	public const ITEM_ID_LOG_MENU_NORMAL = "__log_menu:item_preview";
 	public const ITEM_ID_MAIN_MENU_NORMAL = "__main_menu:item_preview_normal";
 	public const ITEM_ID_MAIN_MENU_GROUPED = "__main_menu:item_preview_grouped";
 	public const ITEM_ID_MAIN_MENU_BID = "__main_menu:item_preview_bid";
@@ -58,6 +61,7 @@ final class AuctionHouse{
 	 * @param Server $server
 	 * @param TaskScheduler $scheduler
 	 * @param array<non-empty-string, Item> $item_registry
+	 * @param array<int, array{non-empty-string, non-empty-string|null}> $layout_log_menu
 	 * @param array<int, array{non-empty-string, non-empty-string|null}> $layout_main_menu
 	 * @param array<int, array{non-empty-string, non-empty-string|null}> $layout_personal_listing
 	 * @param array<int, array{non-empty-string, non-empty-string|null}> $layout_collection_bin
@@ -87,6 +91,7 @@ final class AuctionHouse{
 		readonly private Server $server,
 		readonly private TaskScheduler $scheduler,
 		readonly public array $item_registry,
+		readonly public array $layout_log_menu,
 		readonly public array $layout_main_menu,
 		readonly public array $layout_personal_listing,
 		readonly public array $layout_collection_bin,
@@ -902,5 +907,100 @@ final class AuctionHouse{
 			}
 		}
 		return $result;
+	}
+
+	public function sendLogs(Player $player, ?AuctionHousePlayerIdentification $filter_by = null) : Generator{
+		$total_records = yield from $this->database->getLogsLength($filter_by?->uuid);
+		if($total_records === 0){
+			if($player->isConnected()){
+				$player->sendMessage($filter_by !== null ?
+					TextFormat::RED . "No records of {$filter_by->gamertag} were found." :
+					TextFormat::RED . "No records were found."
+				);
+			}
+			return;
+		}
+
+		$menu = InvMenu::create(InvMenu::TYPE_DOUBLE_CHEST);
+		$menu->setName($filter_by !== null ? "Logs involving {$filter_by->gamertag}" : "Logs");
+		$inventory = $menu->getInventory();
+		$total_pages = (int) ceil($total_records / self::ENTRIES_PER_PAGE);
+		$page = 1;
+		/** @var list<AuctionHouseLog> $records */
+		$records = [];
+		/** @var array<int, Item> $records */
+		$items = [];
+		$state = "download_page";
+		while($state !== null){
+			if($state === "download_page"){
+				$records = yield from $this->database->getLogs(($page - 1) * self::ENTRIES_PER_PAGE, self::ENTRIES_PER_PAGE, $filter_by?->uuid);
+				$state = "set_page";
+			}elseif($state === "set_page"){
+				$items = yield from $this->loadItems(array_map(static fn($e) => $e->item_id, $records));
+				$contents = [];
+				foreach($records as $record){
+					$contents[] = $this->formatInternalItem($items[$record->item_id] ?? VanillaItems::APPLE(), self::ITEM_ID_LOG_MENU_NORMAL, [
+						"{buyer}" => $record->buyer->gamertag, "{seller}" => $record->seller->gamertag,
+						"{listing_price}" => $this->economy->formatBalance($record->listing_price),
+						"{purchase_price}" => $this->economy->formatBalance($record->purchase_price),
+						"{purchase_time}" => date("Y-m-d H:i:s T", $record->purchase_time)
+					]);
+				}
+				foreach($this->layout_log_menu as $slot => [$identifier, ]){
+					$contents[$slot] = $this->item_registry[$identifier];
+				}
+				$inventory->setContents($contents);
+				$state = "listen";
+			}elseif($state === "listen"){
+				try{
+					/** @var DeterministicInvMenuTransaction $transaction */
+					$transaction = yield from Utils::waitTransaction($menu, $player);
+				}catch(InventoryException){
+					$state = "destroy";
+					continue;
+				}
+				$menu->setListener(InvMenu::readonly());
+				$slot = $transaction->getAction()->getSlot();
+				$action = $this->layout_log_menu[$slot][1] ?? null;
+				if($action === "page_next"){
+					if($page + 1 > $total_pages){
+						if($page !== 1){
+							$page = 1;
+							$state = "download_page";
+						}
+					}else{
+						$page++;
+						$state = "download_page";
+					}
+				}elseif($action === "page_previous"){
+					if($page - 1 < 1){
+						if($page !== $total_pages){
+							$page = $total_pages;
+							$state = "download_page";
+						}
+					}else{
+						$page--;
+						$state = "download_page";
+					}
+				}elseif($action === "refresh"){
+					$refreshing_icon = VanillaBlocks::BARRIER()->asItem()
+						->setCustomName(TextFormat::RESET . TextFormat::BOLD . TextFormat::RED . "Refreshing...")
+						->setLore([TextFormat::RESET . TextFormat::GRAY . "Please wait."]);
+					foreach($this->layout_log_menu as $slot => [, $action]){
+						if($action === "refresh"){
+							$menu->getInventory()->setItem($slot, $refreshing_icon);
+						}
+					}
+					$menu->setListener(InvMenu::readonly());
+					yield from $this->sleep(20);
+					$state = "download_page";
+				}elseif(isset($records[$slot], $items[$records[$slot]->item_id])){
+					$player->getInventory()->addItem($items[$records[$slot]->item_id]);
+				}
+			}elseif($state === "destroy"){
+				$state = null;
+				$player->removeCurrentWindow();
+			}
+		}
 	}
 }

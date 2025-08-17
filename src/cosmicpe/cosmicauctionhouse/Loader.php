@@ -15,10 +15,13 @@ use pocketmine\event\player\PlayerJoinEvent;
 use pocketmine\event\player\PlayerLoginEvent;
 use pocketmine\item\StringToItemParser;
 use pocketmine\item\VanillaItems;
+use pocketmine\permission\Permission;
+use pocketmine\permission\PermissionManager;
 use pocketmine\player\Player;
 use pocketmine\plugin\PluginBase;
 use pocketmine\utils\Filesystem;
 use pocketmine\utils\TextFormat;
+use RuntimeException;
 use SOFe\AwaitGenerator\Await;
 use Symfony\Component\Filesystem\Path;
 use function array_diff_key;
@@ -27,6 +30,7 @@ use function array_is_list;
 use function array_key_exists;
 use function array_keys;
 use function array_map;
+use function array_slice;
 use function array_unique;
 use function count;
 use function get_debug_type;
@@ -60,8 +64,10 @@ final class Loader extends PluginBase{
 
 	private Database $database;
 	private AuctionHouse $auction_house;
+	private Permission $log_permission;
 
 	protected function onEnable() : void{
+		$this->log_permission = PermissionManager::getInstance()->getPermission("cosmicpe.command.auctionhouse.logs") ?? throw new RuntimeException();
 		if(!InvMenuHandler::isRegistered()){
 			InvMenuHandler::register($this);
 		}
@@ -175,7 +181,8 @@ final class Loader extends PluginBase{
 		$min_bid_duration = $value;
 
 		$internal_items = [AuctionHouse::ITEM_ID_PERSONAL_LISTING, AuctionHouse::ITEM_ID_CONFIRM_BID, AuctionHouse::ITEM_ID_CONFIRM_BUY,
-			AuctionHouse::ITEM_ID_CONFIRM_SELL, AuctionHouse::ITEM_ID_MAIN_MENU_NORMAL, AuctionHouse::ITEM_ID_MAIN_MENU_GROUPED, AuctionHouse::ITEM_ID_MAIN_MENU_BID, AuctionHouse::ITEM_ID_COLLECTION_BIN];
+			AuctionHouse::ITEM_ID_CONFIRM_SELL, AuctionHouse::ITEM_ID_MAIN_MENU_NORMAL, AuctionHouse::ITEM_ID_LOG_MENU_NORMAL,
+			AuctionHouse::ITEM_ID_MAIN_MENU_GROUPED, AuctionHouse::ITEM_ID_MAIN_MENU_BID, AuctionHouse::ITEM_ID_COLLECTION_BIN];
 		isset($data["item_registry"]) || throw new InvalidArgumentException("'item_registry' directive not found");
 		is_array($data["item_registry"]) || throw new InvalidArgumentException("'item_registry' must be an array, got " . gettype($data["item_registry"]));
 		$item_registry = [];
@@ -208,6 +215,7 @@ final class Loader extends PluginBase{
 		is_array($data["menu_layouts"]) || throw new InvalidArgumentException("'menu_layouts' must be an array, got " . gettype($data["menu_layouts"]));
 		$known_layouts = [
 			"main_menu" => ["personal_listings", "collection_bin", "page_previous", "refresh", "page_next", "category_view", "none"],
+			"log_menu" => ["page_previous", "refresh", "page_next", "none"],
 			"personal_listing" => ["back", "none"],
 			"collection_bin" => ["back", "claim_all", "guide", "none"],
 			"confirm_bid" => ["confirm", "deny", "none"],
@@ -253,7 +261,7 @@ final class Loader extends PluginBase{
 
 		$undefined_layout_identifiers = array_diff_key($known_layouts, $layouts);
 		count($undefined_layout_identifiers) === 0 || throw new InvalidArgumentException("No configuration specified for menu layout " . implode(", ", array_keys($undefined_layout_identifiers)));
-		return new AuctionHouse($this->getServer(), $this->getScheduler(), $item_registry, $layouts["main_menu"], $layouts["personal_listing"], $layouts["collection_bin"], $layouts["confirm_bid"],
+		return new AuctionHouse($this->getServer(), $this->getScheduler(), $item_registry, $layouts["log_menu"], $layouts["main_menu"], $layouts["personal_listing"], $layouts["collection_bin"], $layouts["confirm_bid"],
 			$layouts["confirm_buy"], $layouts["confirm_sell"], $known_messages["purchase_failed_listing_no_longer_available"], $known_messages["withdraw_failed_listing_no_longer_available"],
 			$known_messages["collection_failed_inventory_full"], $known_messages["bid_success"], $known_messages["purchase_success"], implode(TextFormat::EOL, $known_messages["purchase_success_seller"]), $known_messages["listing_failed_exceed_limit"], $known_messages["listing_failed_not_enough_balance_tax"],
 			$known_messages["listing_success"], $this->database, $sell_price_min, $sell_price_max, $sell_tax_rate, $max_listings, $expiry_duration,
@@ -292,6 +300,7 @@ final class Loader extends PluginBase{
 	 * @return Generator<mixed, Await::RESOLVE, void, void>
 	 */
 	private function onCommandAsync(Player $player, string $label, array $args) : Generator{
+		yield from [];
 		if(isset($this->_processing_senders[$id = spl_object_id($player)])){ // spam protection
 			return;
 		}
@@ -302,30 +311,48 @@ final class Loader extends PluginBase{
 				yield from $this->auction_house->send($player);
 				return;
 			}
-			if($args[0] === "sell"){
-				if(isset($args[1])){
-					$item = $player->getInventory()->getItemInHand();
-					if($item->isNull()){
-						$player->sendMessage(TextFormat::RED . "Please hold an item in hand.");
-						return;
-					}
+			if($args[0] === "sell" && isset($args[1])){
+				$item = $player->getInventory()->getItemInHand();
+				if($item->isNull()){
+					$player->sendMessage(TextFormat::RED . "Please hold an item in hand.");
+					return;
+				}
 
-					try{
-						$price = $this->validatePositiveFormattedFloat("price", $args[1]);
-					}catch(InvalidArgumentException $e){
-						$player->sendMessage(TextFormat::RED . "Please enter a valid price ({$e->getMessage()}).");
-						return;
-					}
+				try{
+					$price = $this->validatePositiveFormattedFloat("price", $args[1]);
+				}catch(InvalidArgumentException $e){
+					$player->sendMessage(TextFormat::RED . "Please enter a valid price ({$e->getMessage()}).");
+					return;
+				}
 
-					$player->getInventory()->setItemInHand(VanillaItems::AIR());
-					try{
-						yield from $this->auction_house->sendSellConfirmation($player, $item, $price, null);
-					}catch(InvalidArgumentException $e){
-						if($player->isConnected()){
-							$player->sendMessage(TextFormat::RED . $e->getMessage());
-						}
+				$player->getInventory()->setItemInHand(VanillaItems::AIR());
+				try{
+					yield from $this->auction_house->sendSellConfirmation($player, $item, $price, null);
+				}catch(InvalidArgumentException $e){
+					if($player->isConnected()){
+						$player->sendMessage(TextFormat::RED . $e->getMessage());
 					}
 				}
+				return;
+			}
+			if($args[0] === "logs" && $player->hasPermission($this->log_permission)){
+				$profile = null;
+				if(count($args) > 1){
+					$gamertag = implode(" ", array_slice($args, 1));
+					/** @var AuctionHousePlayerIdentification|null $profile */
+					$profile = yield from $this->database->lookupGamertag($gamertag);
+					if($profile === null){
+						$player->sendMessage(TextFormat::RED . "No records of {$gamertag} were found.");
+						return;
+					}
+				}
+				yield from $this->auction_house->sendLogs($player, $profile);
+				return;
+			}
+			$player->sendMessage(TextFormat::WHITE . "/{$label} sell <price>" . TextFormat::GRAY . " - Sell the item in your hand for the specified price.");
+			if($player->hasPermission($this->log_permission)){
+				$player->sendMessage(TextFormat::WHITE . "/{$label} logs" . TextFormat::GRAY . " - View auction house transaction logs.");
+				$player->sendMessage(TextFormat::WHITE . "/{$label} logs <player>" . TextFormat::GRAY . " - View auction house transaction logs involving the specified player.");
 			}
 		}finally{
 			unset($this->_processing_senders[$id]);

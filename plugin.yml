@@ -11,3 +11,6 @@ permissions:
   cosmicpe.command.auctionhouse:
     description: Ability to use /ah command
     default: true
+  cosmicpe.command.auctionhouse.logs:
+    description: Ability to use /ah logs command
+    default: op

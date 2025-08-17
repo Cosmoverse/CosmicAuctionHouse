@@ -130,16 +130,6 @@ INSERT INTO auction_house(uuid, item_id, player, price, listing_time, expiry_tim
 -- #    :offered int
 INSERT OR REPLACE INTO auction_house_bids(uuid, bidder, offer, placed, completed, offered) VALUES(:uuid, :bidder, :offer, :placed, :completed, :offered);
 -- #  }
--- #  { log
--- #    :uuid string
--- #    :item_id int
--- #    :buyer string
--- #    :seller string
--- #    :listing_price float
--- #    :purchase_price float
--- #    :purchase_time int
-INSERT INTO auction_house_logs(uuid, item_id, buyer, seller, listing_price, purchase_price, purchase_time) VALUES(:uuid, :item_id, :buyer, :seller, :listing_price, :purchase_price, :purchase_time);
--- #  }
 -- #  { remove
 -- #    :uuid string
 DELETE FROM auction_house WHERE uuid=:uuid;
@@ -220,6 +210,50 @@ DELETE FROM auction_house_collection_bin WHERE uuid=:uuid AND item_id=:item_id;
 -- #    :uuid string
 SELECT item_id, placement_time FROM auction_house_collection_bin WHERE uuid=:uuid ORDER BY placement_time DESC LIMIT 45;
 -- #  }
+-- #  { logs
+-- #    { new
+-- #      :uuid string
+-- #      :item_id int
+-- #      :buyer string
+-- #      :seller string
+-- #      :listing_price float
+-- #      :purchase_price float
+-- #      :purchase_time int
+INSERT INTO auction_house_logs(uuid, item_id, buyer, seller, listing_price, purchase_price, purchase_time) VALUES(:uuid, :item_id, :buyer, :seller, :listing_price, :purchase_price, :purchase_time);
+-- #    }
+-- #    { all
+-- #      :offset int
+-- #      :length int
+SELECT l.uuid, l.item_id, l.listing_price, l.purchase_price, l.purchase_time, bp.uuid AS buyer_uuid, bp.gamertag AS buyer_gamertag, sp.uuid AS seller_uuid, sp.gamertag AS seller_gamertag
+FROM auction_house_logs l
+INNER JOIN auction_house_players bp ON bp.uuid=l.buyer
+INNER JOIN auction_house_players sp ON sp.uuid=l.seller
+ORDER BY l.purchase_time DESC LIMIT :offset, :length;
+-- #    }
+-- #    { all_count
+SELECT COUNT(1) AS c FROM auction_house_logs l
+INNER JOIN auction_house_players bp ON bp.uuid=l.buyer
+INNER JOIN auction_house_players sp ON sp.uuid=l.seller;
+-- #    }
+-- #    { player
+-- #      :player string
+-- #      :offset int
+-- #      :length int
+SELECT l.uuid, l.item_id, l.listing_price, l.purchase_price, l.purchase_time, bp.uuid AS buyer_uuid, bp.gamertag AS buyer_gamertag, sp.uuid AS seller_uuid, sp.gamertag AS seller_gamertag
+FROM auction_house_logs l
+INNER JOIN auction_house_players bp ON bp.uuid=l.buyer
+INNER JOIN auction_house_players sp ON sp.uuid=l.seller
+WHERE l.buyer=:player OR l.seller=:player
+ORDER BY l.purchase_time DESC LIMIT :offset, :length;
+-- #    }
+-- #    { player_count
+-- #      :player string
+SELECT COUNT(1) AS c FROM auction_house_logs l
+INNER JOIN auction_house_players bp ON bp.uuid=l.buyer
+INNER JOIN auction_house_players sp ON sp.uuid=l.seller
+WHERE l.buyer=:player OR l.seller=:player;
+-- #    }
+-- #  }
 -- #  { player
 -- #    { init
 -- #      :uuid string
@@ -239,6 +273,10 @@ FROM auction_house_logs l
 INNER JOIN auction_house_players bp ON bp.uuid=l.buyer
 WHERE l.seller=:player AND l.purchase_time BETWEEN :time1 AND :time2
 ORDER BY l.purchase_time;
+-- #    }
+-- #    { lookup_gamertag
+-- #      :gamertag string
+SELECT uuid, gamertag FROM auction_house_players WHERE gamertag=:gamertag COLLATE NOCASE;
 -- #    }
 -- #    { stats
 -- #      :player string
