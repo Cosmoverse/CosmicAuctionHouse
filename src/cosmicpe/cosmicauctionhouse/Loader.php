@@ -238,8 +238,8 @@ final class Loader extends PluginBase{
 		isset($data["messages"]) || throw new InvalidArgumentException("'messages' directive not found");
 		is_array($data["messages"]) || throw new InvalidArgumentException("'messages' must be an array, got " . gettype($data["messages"]));
 		$known_messages = ["purchase_failed_listing_no_longer_available" => null, "withdraw_failed_listing_no_longer_available" => null,
-			"bid_success" => null, "purchase_success" => null, "purchase_success_seller" => null, "listing_failed_exceed_limit" => null,
-			"listing_failed_not_enough_balance_tax" => null, "listing_success" => null];
+			"bid_success" => null, "collection_failed_inventory_full" => null, "purchase_success" => null, "purchase_success_seller" => null,
+			"listing_failed_exceed_limit" => null, "listing_failed_not_enough_balance_tax" => null, "listing_success" => null];
 		foreach($data["messages"] as $identifier => $message){
 			array_key_exists($identifier, $known_messages) || throw new InvalidArgumentException("Unexpected message identifier '{$identifier}', expected one of: " . implode(", ", array_keys($known_messages)));
 			is_array($message) || throw new InvalidArgumentException("'message' must be an array for {$identifier}, got " . get_debug_type($message));
@@ -255,7 +255,7 @@ final class Loader extends PluginBase{
 		count($undefined_layout_identifiers) === 0 || throw new InvalidArgumentException("No configuration specified for menu layout " . implode(", ", array_keys($undefined_layout_identifiers)));
 		return new AuctionHouse($this->getServer(), $this->getScheduler(), $item_registry, $layouts["main_menu"], $layouts["personal_listing"], $layouts["collection_bin"], $layouts["confirm_bid"],
 			$layouts["confirm_buy"], $layouts["confirm_sell"], $known_messages["purchase_failed_listing_no_longer_available"], $known_messages["withdraw_failed_listing_no_longer_available"],
-			$known_messages["bid_success"], $known_messages["purchase_success"], implode(TextFormat::EOL, $known_messages["purchase_success_seller"]), $known_messages["listing_failed_exceed_limit"], $known_messages["listing_failed_not_enough_balance_tax"],
+			$known_messages["collection_failed_inventory_full"], $known_messages["bid_success"], $known_messages["purchase_success"], implode(TextFormat::EOL, $known_messages["purchase_success_seller"]), $known_messages["listing_failed_exceed_limit"], $known_messages["listing_failed_not_enough_balance_tax"],
 			$known_messages["listing_success"], $this->database, $sell_price_min, $sell_price_max, $sell_tax_rate, $max_listings, $expiry_duration,
 			$min_bid_duration, $max_bid_duration, NullAuctionHouseEconomy::instance());
 	}

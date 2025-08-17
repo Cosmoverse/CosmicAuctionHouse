@@ -398,6 +398,10 @@
         ]
     },
     "messages": {
+        "collection_failed_inventory_full": [
+            "&c&lCollection Failed",
+            "&cYour inventory is full, make some space to collect items."
+        ],
         "purchase_failed_listing_no_longer_available": [
             "&c&lPurchase Failed",
             "&cThis listing is no longer available for purchase."

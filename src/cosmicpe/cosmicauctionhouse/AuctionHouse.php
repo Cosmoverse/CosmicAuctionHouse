@@ -66,6 +66,7 @@ final class AuctionHouse{
 	 * @param array<int, array{non-empty-string, non-empty-string|null}> $layout_confirm_sell
 	 * @param array{string, string} $message_purchase_failed_listing_no_longer_available
 	 * @param array{string, string} $message_withdraw_failed_listing_no_longer_available
+	 * @param array{string, string} $collection_failed_inventory_full
 	 * @param array{string, string} $message_bid_success
 	 * @param array{string, string} $message_purchase_success
 	 * @param string $message_purchase_success_seller
@@ -94,6 +95,7 @@ final class AuctionHouse{
 		readonly public array $layout_confirm_sell,
 		readonly public array $message_purchase_failed_listing_no_longer_available,
 		readonly public array $message_withdraw_failed_listing_no_longer_available,
+		readonly public array $collection_failed_inventory_full,
 		readonly public array $message_bid_success,
 		readonly public array $message_purchase_success,
 		readonly public string $message_purchase_success_seller,
@@ -559,7 +561,6 @@ final class AuctionHouse{
 				}finally{
 					$this->lock->release();
 				}
-				$uuids = array_keys($uuids);
 				$items = yield from $this->loadItems(array_map(static fn($e) => $e->item_id, $entries));
 
 				$contents = array_map(fn($uuid) => $this->formatInternalItem($items[$entries[$uuid]->item_id], self::ITEM_ID_PERSONAL_LISTING, [
@@ -620,6 +621,7 @@ final class AuctionHouse{
 		$player_uuid = $player->getUniqueId()->getBytes();
 		$binned_items = [];
 		$items = [];
+		$player_inventory = $player->getInventory();
 		$state = "refresh";
 		while(true){
 			if($state === "refresh"){
@@ -649,17 +651,27 @@ final class AuctionHouse{
 					if(count($binned_items) === 0){
 						continue;
 					}
-					yield from Await::all(array_map(fn($e) => $this->database->removeFromCollectionBin($player_uuid, $e[0]), $binned_items));
-					$collected = [];
+					$tasks = [];
 					foreach($binned_items as [$item_id,]){
-						$collected[] = $items[$item_id];
+						$item = $items[$item_id];
+						if(!$player_inventory->canAddItem($item)){
+							$player->sendToastNotification($this->collection_failed_inventory_full[0], $this->collection_failed_inventory_full[1]);
+							break;
+						}
+						$player_inventory->addItem($item);
+						$tasks[] = $this->database->removeFromCollectionBin($player_uuid, $item_id);
 					}
-					$player->getInventory()->addItem(...$collected);
+					yield from Await::all($tasks);
 					$state = "refresh";
 				}elseif(isset($binned_items[$slot])){
 					$item_id = $binned_items[$slot][0];
-					yield from $this->database->removeFromCollectionBin($player_uuid, $item_id);
-					$player->getInventory()->addItem($items[$item_id]);
+					$item = $items[$item_id];
+					if($player_inventory->canAddItem($item)){
+						$player->getInventory()->addItem($item);
+						yield from $this->database->removeFromCollectionBin($player_uuid, $item_id);
+					}else{
+						$player->sendToastNotification($this->collection_failed_inventory_full[0], $this->collection_failed_inventory_full[1]);
+					}
 					$state = "refresh";
 				}
 			}
@@ -752,14 +764,18 @@ final class AuctionHouse{
 				}
 				if($entry->bid_info === null){
 					if($player->isConnected()){
-						$player->getInventory()->addItem($item);
-						$player->sendToastNotification($this->message_purchase_success[0], strtr($this->message_purchase_success[1], ["{item}" => $item->getName(), "{count}" => $item->getCount(), "{price}" => $this->economy->formatBalance($price)]));
-						$seller = $this->server->getPlayerByRawUUID($entry->player->uuid);
-						if($seller !== null){
-							$this->notifySellerAboutPurchase($seller, AuctionHousePlayerIdentification::fromPlayer($player), $item, $price, time());
+						if($player->getInventory()->canAddItem($item)){
+							$player->getInventory()->addItem($item);
+						}else{
+							yield from $this->database->addToCollectionBin($player->getUniqueId()->getBytes(), $entry->item_id);
 						}
+						$player->sendToastNotification($this->message_purchase_success[0], strtr($this->message_purchase_success[1], ["{item}" => $item->getName(), "{count}" => $item->getCount(), "{price}" => $this->economy->formatBalance($price)]));
 					}else{ // player is offline: place in their collection bin
 						yield from $this->database->addToCollectionBin($player->getUniqueId()->getBytes(), $entry->item_id);
+					}
+					$seller = $this->server->getPlayerByRawUUID($entry->player->uuid);
+					if($seller !== null){
+						$this->notifySellerAboutPurchase($seller, AuctionHousePlayerIdentification::fromPlayer($player), $item, $price, time());
 					}
 					unset($this->entry_cache[$entry->uuid]);
 					yield from Await::all([
@@ -878,7 +894,7 @@ final class AuctionHouse{
 			$player->removeCurrentWindow();
 		}
 		if(!$result){
-			if($player->isConnected()){
+			if($player->isConnected() && $player->getInventory()->canAddItem($item)){
 				$player->getInventory()->addItem($item);
 			}else{
 				$item_id = yield from $this->database->addItem($item);
