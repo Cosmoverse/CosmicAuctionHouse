@@ -452,5 +452,17 @@
             "&a&lListing Successful",
             "&7You successfully listed &a{item}&r &7(x{count}) for &a${price}&7."
         ]
+    },
+    "sounds": {
+        "collection_bin_claim_success": "xp_collect_sound",
+        "collection_bin_open": "click_sound",
+        "enter_category_view": "lectern_place_book_sound",
+        "enter_flat_view": "lectern_place_book_sound",
+        "open": "click_sound",
+        "personal_listings_open": "click_sound",
+        "refresh": "flint_steel_sound",
+        "retract_listing_success": "pop_sound",
+        "select_category": "lectern_place_book_sound",
+        "turn_page": "lectern_place_book_sound"
     }
 }

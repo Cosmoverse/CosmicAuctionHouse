@@ -17,6 +17,7 @@ use pocketmine\scheduler\TaskScheduler;
 use pocketmine\Server;
 use pocketmine\utils\TextFormat;
 use pocketmine\world\sound\PopSound;
+use pocketmine\world\sound\Sound;
 use RuntimeException;
 use SOFe\AwaitGenerator\Await;
 use SOFe\AwaitGenerator\Mutex;
@@ -49,6 +50,27 @@ final class AuctionHouse{
 	public const ITEM_ID_MAIN_MENU_BID = "__main_menu:item_preview_bid";
 	public const ITEM_ID_PERSONAL_LISTING = "__personal_listing:item_preview";
 
+	public const EVENT_COLLECTION_BIN_CLAIM_FAILURE = "collection_bin_claim_failure";
+	public const EVENT_COLLECTION_BIN_CLAIM_SUCCESS = "collection_bin_claim_success";
+	public const EVENT_COLLECTION_BIN_OPEN = "collection_bin_open";
+	public const EVENT_ENTER_CATEGORY_VIEW = "enter_category_view";
+	public const EVENT_ENTER_FLAT_VIEW = "enter_flat_view";
+	public const EVENT_OPEN = "open";
+	public const EVENT_PERSONAL_LISTINGS_OPEN = "personal_listings_open";
+	public const EVENT_PURCHASE_DENY = "purchase_deny";
+	public const EVENT_PURCHASE_FAILURE = "purchase_failure";
+	public const EVENT_PURCHASE_SUCCESS = "purchase_success";
+	public const EVENT_REFRESH = "refresh";
+	public const EVENT_RETRACT_LISTING_FAILURE = "retract_listing_failure";
+	public const EVENT_RETRACT_LISTING_SUCCESS = "retract_listing_success";
+	public const EVENT_SELECT_CATEGORY = "select_category";
+	public const EVENT_SELECT_LISTING_FAILURE = "select_listing_failure";
+	public const EVENT_SELECT_LISTING_SUCCESS = "select_listing_success";
+	public const EVENT_SELL_DENY = "sell_deny";
+	public const EVENT_SELL_FAILURE = "sell_failure";
+	public const EVENT_SELL_SUCCESS = "sell_success";
+	public const EVENT_TURN_PAGE = "turn_page";
+
 	readonly private Mutex $lock;
 
 	/** @var array<int, Item> */
@@ -77,6 +99,7 @@ final class AuctionHouse{
 	 * @param array{string, string} $message_listing_failed_exceed_limit
 	 * @param array{string, string} $message_listing_failed_not_enough_balance_tax
 	 * @param array{string, string} $message_listing_success
+	 * @param array<string, Sound> $event_sounds
 	 * @param Database $database
 	 * @param AuctionHousePermissionEvaluator<float> $sell_price_min
 	 * @param AuctionHousePermissionEvaluator<float> $sell_price_max
@@ -107,6 +130,7 @@ final class AuctionHouse{
 		readonly public array $message_listing_failed_exceed_limit,
 		readonly public array $message_listing_failed_not_enough_balance_tax,
 		readonly public array $message_listing_success,
+		readonly public array $event_sounds,
 		readonly public Database $database,
 		public AuctionHousePermissionEvaluator $sell_price_min,
 		public AuctionHousePermissionEvaluator $sell_price_max,
@@ -142,6 +166,16 @@ final class AuctionHouse{
 	 */
 	private function sleep(int $ticks) : Generator{
 		yield from Await::promise(fn($resolve) => $this->scheduler->scheduleDelayedTask(new ClosureTask($resolve), $ticks));
+	}
+
+	/**
+	 * @param Player $player
+	 * @param self::EVENT_* $event
+	 */
+	private function onEvent(Player $player, string $event) : void{
+		if(isset($this->event_sounds[$event])){
+			$player->getWorld()->addSound($player->getEyePos(), $this->event_sounds[$event], [$player]);
+		}
 	}
 
 	/**
@@ -345,6 +379,7 @@ final class AuctionHouse{
 		$group = null;
 		$categorized = false;
 		$state = "refresh";
+		$this->onEvent($player, self::EVENT_OPEN);
 		while(true){
 			if($state === "refresh"){
 				$state = match(true){
@@ -459,6 +494,7 @@ final class AuctionHouse{
 					}
 				}
 				$menu->setListener(InvMenu::readonly());
+				$this->onEvent($player, self::EVENT_REFRESH);
 				yield from $this->sleep(20);
 				$state = "refresh";
 			}elseif($state === "menu"){
@@ -475,35 +511,43 @@ final class AuctionHouse{
 					if($page + 1 > $total_pages){
 						if($page !== 1){
 							$page = 1;
+							$this->onEvent($player, self::EVENT_TURN_PAGE);
 							$state = "refresh";
 						}
 					}else{
 						$page++;
+						$this->onEvent($player, self::EVENT_TURN_PAGE);
 						$state = "refresh";
 					}
 				}elseif($action === "page_previous"){
 					if($page - 1 < 1){
 						if($page !== $total_pages){
 							$page = $total_pages;
+							$this->onEvent($player, self::EVENT_TURN_PAGE);
 							$state = "refresh";
 						}
 					}else{
 						$page--;
+						$this->onEvent($player, self::EVENT_TURN_PAGE);
 						$state = "refresh";
 					}
 				}elseif($action === "refresh"){
 					$state = "wait_and_refresh";
 				}elseif($action === "personal_listings"){
+					$this->onEvent($player, self::EVENT_PERSONAL_LISTINGS_OPEN);
 					return "personal_listings";
 				}elseif($action === "collection_bin"){
+					$this->onEvent($player, self::EVENT_COLLECTION_BIN_OPEN);
 					return "collection_bin";
 				}elseif($action === "category_view"){
 					$page = 1;
 					if($categorized){
 						if($group === null){
+							$this->onEvent($player, self::EVENT_ENTER_FLAT_VIEW);
 							$categorized = false;
 						}
 					}else{
+						$this->onEvent($player, self::EVENT_ENTER_CATEGORY_VIEW);
 						$categorized = true;
 					}
 					$group = null;
@@ -515,6 +559,7 @@ final class AuctionHouse{
 				if(isset($uuid_groups[$slot]) && $group === null){
 					$page = 1;
 					$group = $uuid_groups[$slot];
+					$this->onEvent($player, self::EVENT_SELECT_CATEGORY);
 					$state = "refresh_group";
 				}else{
 					$state = "menu_select_flat";
@@ -533,12 +578,14 @@ final class AuctionHouse{
 					$this->lock->release();
 				}
 				if(isset($entries[$uuid])){
+					$this->onEvent($player, self::EVENT_SELECT_LISTING_SUCCESS);
 					try{
 						yield from $this->sendPurchaseConfirmation($player, $menu, $entries[$uuid]);
 					}catch(InventoryException){
 						break;
 					}
 				}elseif($player->isConnected()){
+					$this->onEvent($player, self::EVENT_SELECT_LISTING_FAILURE);
 					$player->sendToastNotification($this->message_purchase_failed_listing_no_longer_available[0], $this->message_purchase_failed_listing_no_longer_available[1]);
 				}
 				$total_pages = -1;
@@ -601,11 +648,13 @@ final class AuctionHouse{
 					if(count($entries) > 0){
 						$entry = $entries[$uuids[$slot]];
 						unset($this->entry_cache[$uuids[$slot]]);
+						$this->onEvent($player, self::EVENT_RETRACT_LISTING_SUCCESS);
 						yield from Await::all([
 							$this->database->remove($uuids[$slot]),
 							$this->database->addToCollectionBin($entry->player->uuid, $entry->item_id)
 						]);
 					}elseif($player->isConnected()){
+						$this->onEvent($player, self::EVENT_RETRACT_LISTING_FAILURE);
 						$player->sendToastNotification($this->message_withdraw_failed_listing_no_longer_available[0], $this->message_withdraw_failed_listing_no_longer_available[1]);
 					}
 				}finally{
@@ -654,6 +703,7 @@ final class AuctionHouse{
 				}
 				if($action === "claim_all"){
 					if(count($binned_items) === 0){
+						$this->onEvent($player, self::EVENT_COLLECTION_BIN_CLAIM_FAILURE);
 						continue;
 					}
 					$tasks = [];
@@ -666,6 +716,9 @@ final class AuctionHouse{
 						$player_inventory->addItem($item);
 						$tasks[] = $this->database->removeFromCollectionBin($player_uuid, $item_id);
 					}
+					if(count($tasks) > 0){
+						$this->onEvent($player, self::EVENT_COLLECTION_BIN_CLAIM_SUCCESS);
+					}
 					yield from Await::all($tasks);
 					$state = "refresh";
 				}elseif(isset($binned_items[$slot])){
@@ -674,7 +727,9 @@ final class AuctionHouse{
 					if($player_inventory->canAddItem($item)){
 						$player->getInventory()->addItem($item);
 						yield from $this->database->removeFromCollectionBin($player_uuid, $item_id);
+						$this->onEvent($player, self::EVENT_COLLECTION_BIN_CLAIM_SUCCESS);
 					}else{
+						$this->onEvent($player, self::EVENT_COLLECTION_BIN_CLAIM_FAILURE);
 						$player->sendToastNotification($this->collection_failed_inventory_full[0], $this->collection_failed_inventory_full[1]);
 					}
 					$state = "refresh";
@@ -733,6 +788,7 @@ final class AuctionHouse{
 				continue;
 			}
 			if($action === "deny"){
+				$this->onEvent($player, self::EVENT_PURCHASE_DENY);
 				break;
 			}
 			assert($action === "confirm");
@@ -741,11 +797,13 @@ final class AuctionHouse{
 				$entries = yield from $this->loadEntries([$entry->uuid]);
 				if(count($entries) === 0 || $entry->expiry_time <= time()){
 					$player->sendToastNotification($this->message_purchase_failed_listing_no_longer_available[0], $this->message_purchase_failed_listing_no_longer_available[1]);
+					$this->onEvent($player, self::EVENT_PURCHASE_FAILURE);
 					break;
 				}
 				$price_ = $entry->bid_info?->offer !== null ? $entry->bid_info->offer : $entry->price;
 				if($price_ !== $price){
 					$player->sendToastNotification($this->message_purchase_failed_listing_no_longer_available[0], $this->message_purchase_failed_listing_no_longer_available[1]);
+					$this->onEvent($player, self::EVENT_PURCHASE_FAILURE);
 					break;
 				}
 				try{
@@ -753,6 +811,7 @@ final class AuctionHouse{
 				}catch(AuctionHouseException $e){
 					if($player->isConnected()){
 						$player->sendToastNotification(TextFormat::RED . TextFormat::BOLD . ($entry->bid_info !== null ? "Bid Failed" : "Purchase Failed"), TextFormat::RED . $e->getMessage());
+						$this->onEvent($player, self::EVENT_PURCHASE_FAILURE);
 					}
 					break;
 				}
@@ -775,6 +834,7 @@ final class AuctionHouse{
 							yield from $this->database->addToCollectionBin($player->getUniqueId()->getBytes(), $entry->item_id);
 						}
 						$player->sendToastNotification($this->message_purchase_success[0], strtr($this->message_purchase_success[1], ["{item}" => $item->getName(), "{count}" => $item->getCount(), "{price}" => $this->economy->formatBalance($price)]));
+						$this->onEvent($player, self::EVENT_PURCHASE_SUCCESS);
 					}else{ // player is offline: place in their collection bin
 						yield from $this->database->addToCollectionBin($player->getUniqueId()->getBytes(), $entry->item_id);
 					}
@@ -793,6 +853,7 @@ final class AuctionHouse{
 					unset($this->entry_cache[$entry->uuid]);
 					if($player->isConnected()){
 						$player->sendToastNotification($this->message_bid_success[0], strtr($this->message_bid_success[1], ["{item}" => $item->getName(), "{count}" => $item->getCount(), "{price}" => $this->economy->formatBalance($price)]));
+						$this->onEvent($player, self::EVENT_PURCHASE_SUCCESS);
 					}
 				}
 			}finally{
@@ -858,6 +919,7 @@ final class AuctionHouse{
 			}
 			if($action === "deny"){
 				$result = false;
+				$this->onEvent($player, self::EVENT_SELL_DENY);
 				continue;
 			}
 			assert($action === "confirm");
@@ -867,6 +929,7 @@ final class AuctionHouse{
 				$result = false;
 				if($player->isConnected()){
 					$player->sendToastNotification($this->message_listing_failed_exceed_limit[0], strtr($this->message_listing_failed_exceed_limit[1], ["{limit}" => $max_listings]));
+					$this->onEvent($player, self::EVENT_SELL_FAILURE);
 				}
 				continue;
 			}
@@ -879,6 +942,7 @@ final class AuctionHouse{
 				}catch(AuctionHouseException){
 					if($player->isConnected()){
 						$player->sendToastNotification($this->message_listing_failed_not_enough_balance_tax[0], strtr($this->message_listing_failed_not_enough_balance_tax[1], $replacement_pairs));
+						$this->onEvent($player, self::EVENT_SELL_FAILURE);
 					}
 					$result = false;
 					continue;
@@ -893,6 +957,7 @@ final class AuctionHouse{
 			$result = true;
 			if($player->isConnected()){
 				$player->sendToastNotification($this->message_listing_success[0], strtr($this->message_listing_success[1], $replacement_pairs));
+				$this->onEvent($player, self::EVENT_SELL_SUCCESS);
 			}
 		}
 		if($player->isConnected()){
@@ -966,20 +1031,24 @@ final class AuctionHouse{
 					if($page + 1 > $total_pages){
 						if($page !== 1){
 							$page = 1;
+							$this->onEvent($player, self::EVENT_TURN_PAGE);
 							$state = "download_page";
 						}
 					}else{
 						$page++;
+						$this->onEvent($player, self::EVENT_TURN_PAGE);
 						$state = "download_page";
 					}
 				}elseif($action === "page_previous"){
 					if($page - 1 < 1){
 						if($page !== $total_pages){
 							$page = $total_pages;
+							$this->onEvent($player, self::EVENT_TURN_PAGE);
 							$state = "download_page";
 						}
 					}else{
 						$page--;
+						$this->onEvent($player, self::EVENT_TURN_PAGE);
 						$state = "download_page";
 					}
 				}elseif($action === "refresh"){
@@ -992,9 +1061,11 @@ final class AuctionHouse{
 						}
 					}
 					$menu->setListener(InvMenu::readonly());
+					$this->onEvent($player, self::EVENT_REFRESH);
 					yield from $this->sleep(20);
 					$state = "download_page";
 				}elseif(isset($records[$slot], $items[$records[$slot]->item_id])){
+					$this->onEvent($player, self::EVENT_SELECT_LISTING_SUCCESS);
 					$player->getInventory()->addItem($items[$records[$slot]->item_id]);
 				}
 			}elseif($state === "destroy"){
